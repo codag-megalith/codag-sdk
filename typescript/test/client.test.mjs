@@ -96,6 +96,38 @@ test("constructor baseUrl wins over CODAG_SERVER env", () => withEnv("CODAG_SERV
   assert.equal(client.baseUrl, "http://arg.test");
 }));
 
+test("constructor falls back to default when CODAG_SERVER is empty", () => withEnv("CODAG_SERVER", "", () => {
+  const client = new Codag({ apiKey: "cdk_test", fetch: async () => response(200, {}) });
+  assert.equal(client.baseUrl, "https://api.codag.ai");
+}));
+
+test("constructor falls back to default when baseUrl is empty string", () => {
+  const client = new Codag({ apiKey: "cdk_test", baseUrl: "", fetch: async () => response(200, {}) });
+  assert.equal(client.baseUrl, "https://api.codag.ai");
+});
+
+test("default global fetch is bound to its realm", async () => {
+  // Reproduces the browser "Illegal invocation" bug: a realm-bound native
+  // fetch throws if called with a receiver other than globalThis. The client
+  // must bind the default fetch so calling it as this.fetch(...) still works.
+  const realGlobalFetch = globalThis.fetch;
+  let receiverOk = false;
+  globalThis.fetch = function fetch() {
+    receiverOk = this === globalThis || this === undefined;
+    if (!receiverOk) {
+      throw new TypeError("Illegal invocation");
+    }
+    return Promise.resolve(rawResponse(200, "{}"));
+  };
+  try {
+    const client = new Codag({ apiKey: "cdk_test", baseUrl: "http://example.test" });
+    await client.health();
+    assert.equal(receiverOk, true);
+  } finally {
+    globalThis.fetch = realGlobalFetch;
+  }
+});
+
 test("constructor uses CODAG_API_KEY env", () => withEnv("CODAG_API_KEY", "cdk_env", () => {
   const client = new Codag({ baseUrl: "http://example.test", fetch: async () => response(200, {}) });
   assert.equal(client.apiKey, "cdk_env");
@@ -311,6 +343,15 @@ test("normalizeLines rejects too many lines", () => {
 
 test("normalizeLines rejects too long line", () => {
   assert.throws(() => normalizeLines(["x".repeat(256 * 1024 + 1)]), ValidationError);
+});
+
+test("normalizeLines measures length in code points not UTF-16 units", () => {
+  // 200k astral-plane emoji = 400k UTF-16 units but only 200k code points,
+  // which is under the 262144 limit and must be accepted (matches server/Python).
+  const emoji = "😀".repeat(200_000);
+  assert.equal(normalizeLines([emoji])[0].message.length, emoji.length);
+  // One code point over the limit is still rejected.
+  assert.throws(() => normalizeLines(["😀".repeat(262_145)]), ValidationError);
 });
 
 test("normalizeLines rejects invalid item type", () => {

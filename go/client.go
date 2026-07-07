@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -249,6 +250,12 @@ func (c *Client) WaitForCompactJob(ctx context.Context, jobID string, opts *Wait
 	for {
 		job, err := c.GetCompactJob(ctx, jobID)
 		if err != nil {
+			// If the wait deadline expired during the in-flight poll, report it
+			// as a timeout (matching Python/TypeScript) rather than leaking the
+			// transport-level "context deadline exceeded".
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("compact job %s did not finish within %s: %w", jobID, timeout, ctx.Err())
+			}
 			return nil, err
 		}
 		if job.Status != "queued" && job.Status != "running" {
@@ -283,7 +290,7 @@ func BuildCapsuleRequest(lines any, opts *RequestOptions) (*CapsuleRequest, erro
 	}
 	req := &CapsuleRequest{Lines: records}
 	if opts != nil && opts.Metadata != nil {
-		raw, err := json.Marshal(opts.Metadata)
+		raw, err := marshalJSON(opts.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("marshal metadata: %w", err)
 		}
@@ -293,6 +300,20 @@ func BuildCapsuleRequest(lines any, opts *RequestOptions) (*CapsuleRequest, erro
 		req.Metadata = opts.Metadata
 	}
 	return req, nil
+}
+
+// marshalJSON encodes v without Go's default HTML escaping of <, >, and &, so
+// the byte count and wire payload match the Python and TypeScript clients
+// (which do not HTML-escape). encoding/json.Encoder appends a trailing
+// newline, which is trimmed.
+func marshalJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // NormalizeLines converts []string or []LineRecord input into validated
@@ -317,7 +338,7 @@ func NormalizeLines(lines any, opts *RequestOptions) ([]LineRecord, error) {
 		}
 		out := make([]LineRecord, 0, len(value))
 		for i, line := range value {
-			if len(line) > maxLogLineChars {
+			if tooManyChars(line) {
 				return nil, fmt.Errorf("line %d exceeds %d characters", i, maxLogLineChars)
 			}
 			out = append(out, LineRecord{
@@ -338,11 +359,15 @@ func NormalizeLines(lines any, opts *RequestOptions) ([]LineRecord, error) {
 		out := make([]LineRecord, len(value))
 		copy(out, value)
 		for i := range out {
-			if out[i].Message == "" {
-				return nil, fmt.Errorf("line %d is missing message", i)
-			}
-			if len(out[i].Message) > maxLogLineChars {
+			if tooManyChars(out[i].Message) {
 				return nil, fmt.Errorf("line %d exceeds %d characters", i, maxLogLineChars)
+			}
+			// Backfill line_id from the array index when unset, matching the
+			// []string branch and the Python/TypeScript clients. Go's int
+			// zero value cannot distinguish "unset" from an explicit 0, so an
+			// explicit 0 at a non-zero index is also backfilled.
+			if out[i].LineID == 0 {
+				out[i].LineID = i
 			}
 			if out[i].Level == "" {
 				out[i].Level = level
@@ -364,7 +389,7 @@ func (c *Client) requestJSON(ctx context.Context, method string, path string, pa
 
 	var body io.Reader
 	if payload != nil {
-		raw, err := json.Marshal(payload)
+		raw, err := marshalJSON(payload)
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
@@ -447,4 +472,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// tooManyChars reports whether s exceeds the per-line code-point limit.
+// The byte length is an upper bound on the code-point count, so the O(n)
+// rune count is only taken when the cheap byte check trips. Counting code
+// points (not bytes) matches the server and the Python/TypeScript clients.
+func tooManyChars(s string) bool {
+	return len(s) > maxLogLineChars && utf8.RuneCountInString(s) > maxLogLineChars
 }

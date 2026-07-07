@@ -6,6 +6,7 @@ import os
 import socket
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -105,22 +106,27 @@ class ParseStats:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ParseStats":
+        # Coerce missing OR explicit-null fields to 0 (the server may send null
+        # for optional counters); int(None) would otherwise raise TypeError.
+        def field(name: str) -> int:
+            return int(value.get(name) or 0)
+
         return cls(
-            llm_calls=int(value.get("llm_calls", 0)),
-            cache_hits=int(value.get("cache_hits", 0)),
-            unmatched=int(value.get("unmatched", 0)),
-            elapsed_ms=int(value.get("elapsed_ms", 0)),
-            incident_family_hits=int(value.get("incident_family_hits", 0)),
-            incident_induced_templates=int(value.get("incident_induced_templates", 0)),
-            global_cache_hits=int(value.get("global_cache_hits", 0)),
-            global_shadow_hits=int(value.get("global_shadow_hits", 0)),
-            global_shadow_agreements=int(value.get("global_shadow_agreements", 0)),
-            global_shadow_disagreements=int(value.get("global_shadow_disagreements", 0)),
-            total_patterns=int(value.get("total_patterns", 0)),
-            candidate_patterns=int(value.get("candidate_patterns", 0)),
-            dropped_patterns=int(value.get("dropped_patterns", 0)),
-            cache_pattern_hits=int(value.get("cache_pattern_hits", 0)),
-            global_cache_pattern_hits=int(value.get("global_cache_pattern_hits", 0)),
+            llm_calls=field("llm_calls"),
+            cache_hits=field("cache_hits"),
+            unmatched=field("unmatched"),
+            elapsed_ms=field("elapsed_ms"),
+            incident_family_hits=field("incident_family_hits"),
+            incident_induced_templates=field("incident_induced_templates"),
+            global_cache_hits=field("global_cache_hits"),
+            global_shadow_hits=field("global_shadow_hits"),
+            global_shadow_agreements=field("global_shadow_agreements"),
+            global_shadow_disagreements=field("global_shadow_disagreements"),
+            total_patterns=field("total_patterns"),
+            candidate_patterns=field("candidate_patterns"),
+            dropped_patterns=field("dropped_patterns"),
+            cache_pattern_hits=field("cache_pattern_hits"),
+            global_cache_pattern_hits=field("global_cache_pattern_hits"),
         )
 
 
@@ -268,7 +274,8 @@ class Codag:
         """Fetch the current state of a compact job."""
         if not job_id:
             raise ValidationError("job_id must not be empty")
-        data = self._request_json("GET", f"/v1/compact/jobs/{job_id}", None, auth=True)
+        quoted = urllib.parse.quote(job_id, safe="")
+        data = self._request_json("GET", f"/v1/compact/jobs/{quoted}", None, auth=True)
         return CompactJobResponse.from_dict(data)
 
     def wait_for_compact_job(
@@ -412,10 +419,21 @@ class AsyncCodag:
         poll_interval: float = 1.0,
         timeout: float = 300.0,
     ) -> CompactJobResponse:
-        """Poll a compact job until it leaves the queued/running states."""
-        return await asyncio.to_thread(
-            self._sync.wait_for_compact_job, job_id, poll_interval=poll_interval, timeout=timeout
-        )
+        """Poll a compact job until it leaves the queued/running states.
+
+        Runs the poll loop on the event loop with ``asyncio.sleep`` so a long
+        wait does not occupy a thread-pool worker for its full duration (only
+        the individual HTTP requests are offloaded via ``get_compact_job``).
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            job = await self.get_compact_job(job_id)
+            if job.status not in {"queued", "running"}:
+                return job
+            if loop.time() >= deadline:
+                raise TimeoutError(f"compact job {job_id} did not finish within {timeout:g}s")
+            await asyncio.sleep(poll_interval)
 
     async def health(self) -> Mapping[str, Any]:
         """Unauthenticated ``GET /health``."""
@@ -446,6 +464,10 @@ def normalize_lines(
     level: str = "info",
 ) -> list[dict[str, Any]]:
     """Normalize strings, dicts, or LineRecords into wire-format records."""
+    if isinstance(lines, (str, bytes)):
+        # A bare string is iterable; without this guard list("abc") would be
+        # silently split into one record per character.
+        raise ValidationError("lines must be a sequence of strings, dicts, or LineRecords, not a single string")
     lines = list(lines)
     if len(lines) == 0:
         raise ValidationError("lines must not be empty")

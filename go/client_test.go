@@ -410,6 +410,12 @@ func TestNormalizeLinesRecords(t *testing.T) {
 			t.Fatalf("line id = %d", out[0].LineID)
 		}
 	})
+	t.Run("backfills line id from index when unset", func(t *testing.T) {
+		out, _ := NormalizeLines([]LineRecord{{Message: "a"}, {Message: "b"}, {Message: "c"}}, nil)
+		if out[0].LineID != 0 || out[1].LineID != 1 || out[2].LineID != 2 {
+			t.Fatalf("line ids = %d,%d,%d", out[0].LineID, out[1].LineID, out[2].LineID)
+		}
+	})
 	t.Run("default level", func(t *testing.T) {
 		out, _ := NormalizeLines([]LineRecord{{Message: "a"}}, nil)
 		if out[0].Level != "info" {
@@ -486,10 +492,23 @@ func TestNormalizeLinesValidation(t *testing.T) {
 			t.Fatal("expected error")
 		}
 	})
-	t.Run("rejects missing record message", func(t *testing.T) {
-		_, err := NormalizeLines([]LineRecord{{Level: "error"}}, nil)
-		if err == nil {
-			t.Fatal("expected error")
+	t.Run("accepts empty record message", func(t *testing.T) {
+		// Parity with the []string branch and the Python/TypeScript clients,
+		// which all accept empty-string messages.
+		out, err := NormalizeLines([]LineRecord{{Message: ""}}, nil)
+		if err != nil || len(out) != 1 {
+			t.Fatalf("expected empty message accepted, got out=%+v err=%v", out, err)
+		}
+	})
+	t.Run("counts message length in runes not bytes", func(t *testing.T) {
+		// maxLogLineChars multibyte code points: over the byte limit but at
+		// the code-point limit, so it must be accepted (matches server).
+		msg := strings.Repeat("世", maxLogLineChars)
+		if _, err := NormalizeLines([]string{msg}, nil); err != nil {
+			t.Fatalf("multibyte line at the code-point limit should be accepted: %v", err)
+		}
+		if _, err := NormalizeLines([]string{strings.Repeat("世", maxLogLineChars+1)}, nil); err == nil {
+			t.Fatal("expected error one rune over the limit")
 		}
 	})
 	t.Run("rejects invalid type", func(t *testing.T) {
@@ -531,6 +550,31 @@ func TestBuildCapsuleRequestMetadata(t *testing.T) {
 			t.Fatal("expected error")
 		}
 	})
+	t.Run("does not html-escape metadata when sizing", func(t *testing.T) {
+		// 60000 '<' chars serialize to ~60013 bytes without HTML escaping
+		// (accepted, matching Python/TS) but ~360000 bytes if each '<' became
+		// <, which would wrongly exceed the 64KB limit.
+		req, err := BuildCapsuleRequest([]string{"a"}, &RequestOptions{Metadata: map[string]any{"x": strings.Repeat("<", 60000)}})
+		if err != nil {
+			t.Fatalf("html-heavy metadata under the limit should be accepted: %v", err)
+		}
+		if req.Metadata == nil {
+			t.Fatal("metadata dropped")
+		}
+	})
+}
+
+func TestMarshalJSONNoHTMLEscape(t *testing.T) {
+	raw, err := marshalJSON(map[string]any{"x": "<a>&</a>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("<a>&</a>")) || bytes.Contains(raw, []byte("\\u003c")) {
+		t.Fatalf("expected raw <,>,& with no trailing newline: %q", raw)
+	}
+	if bytes.HasSuffix(raw, []byte("\n")) {
+		t.Fatalf("trailing newline not trimmed: %q", raw)
+	}
 }
 
 func TestAPIErrorMapping(t *testing.T) {

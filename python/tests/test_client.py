@@ -271,6 +271,12 @@ class ClientCase(unittest.TestCase):
         with self.assertRaises(ValidationError):
             client.get_compact_job("")
 
+    def test_get_compact_job_url_encodes_id(self):
+        self.queue("/v1/compact/jobs/a%2Fb%20c", {"job_id": "a/b c", "status": "succeeded"})
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        self.run_mocked(lambda: client.get_compact_job("a/b c"))
+        self.assertEqual(self.calls[0]["url"], self.base_url + "/v1/compact/jobs/a%2Fb%20c")
+
     def test_wait_for_compact_job_returns_completed_job(self):
         self.responses[self.base_url + "/v1/compact/jobs/cj_1"] = [
             (200, {}, {"job_id": "cj_1", "status": "queued"}),
@@ -314,6 +320,34 @@ class ClientCase(unittest.TestCase):
 
         result = asyncio.run(run())
         self.assertEqual(result["ok"], True)
+
+    def test_async_wait_polls_without_blocking_a_thread(self):
+        # The async wait loop runs on the event loop (asyncio.sleep), only
+        # offloading individual HTTP calls, so it must transition queued -> done.
+        self.responses[self.base_url + "/v1/compact/jobs/cj_1"] = [
+            (200, {}, {"job_id": "cj_1", "status": "queued"}),
+            (200, {}, {"job_id": "cj_1", "status": "succeeded", "text": "ok"}),
+        ]
+        client = AsyncCodag(api_key="cdk_test", base_url=self.base_url)
+
+        async def run():
+            with patch("urllib.request.urlopen", fake_urlopen(self.calls, self.responses)):
+                return await client.wait_for_compact_job("cj_1", poll_interval=0, timeout=5)
+
+        result = asyncio.run(run())
+        self.assertEqual(result.text, "ok")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_async_wait_times_out(self):
+        self.queue("/v1/compact/jobs/cj_1", {"job_id": "cj_1", "status": "queued"})
+        client = AsyncCodag(api_key="cdk_test", base_url=self.base_url)
+
+        async def run():
+            with patch("urllib.request.urlopen", fake_urlopen(self.calls, self.responses)):
+                return await client.wait_for_compact_job("cj_1", poll_interval=0, timeout=0)
+
+        with self.assertRaises(TimeoutError):
+            asyncio.run(run())
 
     def test_normalize_string_assigns_line_ids(self):
         records = normalize_lines(["a", "b"])
@@ -391,6 +425,29 @@ class ClientCase(unittest.TestCase):
     def test_normalize_rejects_non_string_message(self):
         with self.assertRaises(ValidationError):
             normalize_lines([{"message": 123}])
+
+    def test_normalize_rejects_bare_string(self):
+        # A bare string is iterable; it must be rejected, not split into
+        # one record per character (parity with the TS/Go clients).
+        with self.assertRaises(ValidationError):
+            normalize_lines("error: db down")
+
+    def test_normalize_rejects_bare_bytes(self):
+        with self.assertRaises(ValidationError):
+            normalize_lines(b"error: db down")
+
+    def test_stats_coerces_null_fields_to_zero(self):
+        # The server may send explicit null for optional counters; int(None)
+        # would otherwise crash instead of decoding cleanly.
+        self.queue(
+            "/v1/compact",
+            {"text": "ok", "stats": {"llm_calls": None, "cache_hits": None, "unmatched": 0, "elapsed_ms": None}},
+        )
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        result = self.run_mocked(lambda: client.compact(["ERROR one"]))
+        self.assertEqual(result.stats.llm_calls, 0)
+        self.assertEqual(result.stats.cache_hits, 0)
+        self.assertEqual(result.stats.elapsed_ms, 0)
 
     def test_request_includes_metadata(self):
         self.queue("/v1/compact", self.compact_fixture)

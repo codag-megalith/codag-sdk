@@ -62,9 +62,14 @@ export class RateLimitError extends APIError {
 export class Codag {
   constructor(options = {}) {
     this.apiKey = options.apiKey ?? env("CODAG_API_KEY") ?? "";
-    this.baseUrl = stripTrailingSlash(options.baseUrl ?? env("CODAG_SERVER") ?? DEFAULT_BASE_URL);
+    // Use `||` so an empty-string baseUrl / CODAG_SERVER falls back to the
+    // default instead of producing an invalid empty base URL.
+    this.baseUrl = stripTrailingSlash(options.baseUrl || env("CODAG_SERVER") || DEFAULT_BASE_URL);
     this.timeoutMs = options.timeoutMs ?? 300_000;
-    this.fetch = options.fetch ?? globalThis.fetch;
+    // Bind the global fetch to its realm: browsers throw "Illegal invocation"
+    // if fetch is called with a receiver other than window/globalThis. A
+    // caller-supplied fetch is used as given.
+    this.fetch = options.fetch ?? globalThis.fetch?.bind(globalThis);
     if (typeof this.fetch !== "function") {
       throw new CodagError("global fetch is unavailable; pass a fetch implementation");
     }
@@ -204,7 +209,10 @@ export function normalizeLines(lines, options = {}) {
     if (typeof record.message !== "string") {
       throw new ValidationError(`line ${index} is missing string field 'message'`);
     }
-    if (record.message.length > MAX_LOG_LINE_CHARS) {
+    // Measure in Unicode code points to match the server (and the Python
+    // client). `.length` counts UTF-16 units and is an upper bound on code
+    // points, so only spread-count when the cheap check trips.
+    if (record.message.length > MAX_LOG_LINE_CHARS && [...record.message].length > MAX_LOG_LINE_CHARS) {
       throw new ValidationError(`line ${index} exceeds ${MAX_LOG_LINE_CHARS} characters`);
     }
     return record;
