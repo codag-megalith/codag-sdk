@@ -1,0 +1,39 @@
+{
+  "name": "@codag/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Codag hosted API",
+  "type": "module",
+  "license": "MIT",
+  "author": "Codag <support@codag.ai>",
+  "homepage": "https://codag.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codag-megalith/codag-sdk.git",
+    "directory": "typescript"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "types": "./src/index.d.ts",
+  "sideEffects": false,
+  "keywords": [
+    "codag",
+    "logs",
+    "observability",
+    "sdk"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

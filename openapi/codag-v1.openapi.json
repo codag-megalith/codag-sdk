@@ -1,0 +1,468 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Codag API",
+    "version": "0.1.0",
+    "description": "Token compression for log streams."
+  },
+  "servers": [
+    {
+      "url": "https://api.codag.ai"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Server health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/compact": {
+      "post": {
+        "operationId": "compact",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapsuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Compact text response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/BillingRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/v1/capsule": {
+      "post": {
+        "operationId": "capsule",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapsuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured incident capsule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapsuleResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/BillingRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/v1/compact/jobs": {
+      "post": {
+        "operationId": "createCompactJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapsuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created compact job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactJobCreateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/BillingRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/v1/compact/jobs/{job_id}": {
+      "get": {
+        "operationId": "getCompactJob",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compact job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactJobResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Job not found"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid bearer token"
+      },
+      "BillingRequired": {
+        "description": "Billing action required",
+        "headers": {
+          "X-Codag-Upgrade": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limited or overloaded",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "LineRecord": {
+        "type": "object",
+        "required": [
+          "line_id",
+          "message"
+        ],
+        "properties": {
+          "line_id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 262144
+          },
+          "level": {
+            "type": "string",
+            "maxLength": 32,
+            "default": "info"
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "service": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
+      "CapsuleRequest": {
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "properties": {
+          "lines": {
+            "type": "array",
+            "maxItems": 20000,
+            "items": {
+              "$ref": "#/components/schemas/LineRecord"
+            }
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ParseStats": {
+        "type": "object",
+        "required": [
+          "llm_calls",
+          "cache_hits",
+          "unmatched",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "llm_calls": {
+            "type": "integer"
+          },
+          "cache_hits": {
+            "type": "integer"
+          },
+          "unmatched": {
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          },
+          "incident_family_hits": {
+            "type": "integer",
+            "default": 0
+          },
+          "incident_induced_templates": {
+            "type": "integer",
+            "default": 0
+          },
+          "global_cache_hits": {
+            "type": "integer",
+            "default": 0
+          },
+          "global_shadow_hits": {
+            "type": "integer",
+            "default": 0
+          },
+          "global_shadow_agreements": {
+            "type": "integer",
+            "default": 0
+          },
+          "global_shadow_disagreements": {
+            "type": "integer",
+            "default": 0
+          },
+          "total_patterns": {
+            "type": "integer",
+            "default": 0
+          },
+          "candidate_patterns": {
+            "type": "integer",
+            "default": 0
+          },
+          "dropped_patterns": {
+            "type": "integer",
+            "default": 0
+          },
+          "cache_pattern_hits": {
+            "type": "integer",
+            "default": 0
+          },
+          "global_cache_pattern_hits": {
+            "type": "integer",
+            "default": 0
+          }
+        },
+        "additionalProperties": true
+      },
+      "CompactResponse": {
+        "type": "object",
+        "required": [
+          "text",
+          "stats"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/ParseStats"
+          },
+          "compact_engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compact_fallback": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compact_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "CapsuleResponse": {
+        "type": "object",
+        "required": [
+          "capsule",
+          "stats"
+        ],
+        "properties": {
+          "capsule": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "stats": {
+            "$ref": "#/components/schemas/ParseStats"
+          }
+        },
+        "additionalProperties": true
+      },
+      "CompactJobCreateResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "poll_url"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "poll_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "CompactJobResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParseStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

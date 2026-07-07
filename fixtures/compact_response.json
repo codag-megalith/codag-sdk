@@ -1,0 +1,23 @@
+{
+  "text": "# codag compact rows=3 in=45 out=12 ratio=3.8\n[root_cause x2 refs=0,2] ERROR api db pool timeout active=<*> waiting=<*>",
+  "stats": {
+    "llm_calls": 0,
+    "cache_hits": 2,
+    "unmatched": 0,
+    "elapsed_ms": 31,
+    "incident_family_hits": 1,
+    "incident_induced_templates": 0,
+    "global_cache_hits": 0,
+    "global_shadow_hits": 0,
+    "global_shadow_agreements": 0,
+    "global_shadow_disagreements": 0,
+    "total_patterns": 1,
+    "candidate_patterns": 1,
+    "dropped_patterns": 0,
+    "cache_pattern_hits": 1,
+    "global_cache_pattern_hits": 0
+  },
+  "compact_engine": "mvp",
+  "compact_fallback": null,
+  "compact_error": null
+}

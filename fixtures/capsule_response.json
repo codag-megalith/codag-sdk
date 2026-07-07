@@ -1,0 +1,60 @@
+{
+  "capsule": {
+    "schema_version": "0.3",
+    "window": {
+      "start_ts": null,
+      "end_ts": null,
+      "line_count_in": 3,
+      "token_count_in": 45,
+      "token_count_out": 12,
+      "compression_ratio": 3.8
+    },
+    "incident": {
+      "type": "unknown",
+      "severity": "error",
+      "detected": true,
+      "root_cause_hypotheses": [
+        {
+          "text": "API database pool timeout.",
+          "confidence": 0.85,
+          "evidence_line_ids": [
+            0,
+            2
+          ]
+        }
+      ],
+      "affected_services": [
+        "api"
+      ],
+      "affected_endpoints": [],
+      "downstream_symptoms": [],
+      "timeline": [],
+      "unknowns": [],
+      "trigger_lines": []
+    },
+    "evidence": [
+      {
+        "line_id": 0,
+        "template_id": "abc123",
+        "role": "root_cause",
+        "raw_excerpt": "ERROR api db pool timeout active=20 waiting=30",
+        "redacted": false,
+        "match_count": 2,
+        "extra_excerpts": [
+          "ERROR api db pool timeout active=21 waiting=31"
+        ],
+        "value_table": null,
+        "value_slot_labels": null
+      }
+    ],
+    "routine_summary": null
+  },
+  "stats": {
+    "llm_calls": 1,
+    "cache_hits": 2,
+    "unmatched": 0,
+    "elapsed_ms": 120,
+    "incident_family_hits": 1,
+    "incident_induced_templates": 0
+  }
+}
