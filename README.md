@@ -135,14 +135,19 @@ func main() {
 ## Supported API
 
 - `POST /v1/compact`
-- `POST /v1/capsule`
+- `POST /v1/capsule` (Deprecated: internal/admin-only, use `/v1/compact`)
 - `POST /v1/compact/jobs`
 - `GET /v1/compact/jobs/{job_id}`
 - `GET /health`
 
-`/v1/capsule` and compact jobs may require a Codag Pro workspace. The SDKs
-surface backend `402` responses as billing errors with the upgrade path when
-the server provides one.
+`/v1/capsule` is deprecated. It is now a Codag-internal, admin-only endpoint,
+and non-admin callers receive a `404`. Use `/v1/compact` instead, which is the
+supported public product surface. The `capsule` methods and their types remain
+in the SDKs for backward compatibility and internal/admin use, so existing code
+keeps compiling, but they should not be used in new integrations.
+
+Compact jobs may require a Codag Pro workspace. The SDKs surface backend `402`
+responses as billing errors with the upgrade path when the server provides one.
 
 Compact jobs report `status` values `queued`, `running`, `succeeded`, or
 `failed`. The `wait_for_compact_job` helpers return as soon as the job leaves

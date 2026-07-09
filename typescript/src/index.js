@@ -2,7 +2,7 @@ const DEFAULT_BASE_URL = "https://api.codag.ai";
 const MAX_LOG_LINES = 20_000;
 const MAX_LOG_LINE_CHARS = 256 * 1024;
 const MAX_METADATA_JSON_BYTES = 64 * 1024;
-const USER_AGENT = "codag-typescript/0.1.0";
+const USER_AGENT = "codag-typescript/0.1.1";
 
 export class CodagError extends Error {
   constructor(message) {
@@ -80,6 +80,12 @@ export class Codag {
     return await this.requestJson("POST", "/v1/compact", payload, { auth: true });
   }
 
+  /**
+   * @deprecated /v1/capsule is now a Codag-internal, admin-only endpoint.
+   * Non-admin callers receive a 404. Use `compact` (POST /v1/compact) instead,
+   * which is the supported public product surface. This method is retained for
+   * backward compatibility and internal/admin use.
+   */
   async capsule(lines, options = {}) {
     const payload = buildPayload(lines, options);
     return await this.requestJson("POST", "/v1/capsule", payload, { auth: true });

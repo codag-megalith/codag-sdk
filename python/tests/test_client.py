@@ -189,7 +189,7 @@ class ClientCase(unittest.TestCase):
         self.queue("/v1/compact", self.compact_fixture)
         client = Codag(api_key="cdk_test", base_url=self.base_url)
         self.run_mocked(lambda: client.compact(["ERROR one"]))
-        self.assertEqual(self.calls[0]["headers"]["user-agent"], "codag-python/0.1.0")
+        self.assertEqual(self.calls[0]["headers"]["user-agent"], "codag-python/0.1.1")
 
     def test_compact_passes_timeout_to_urlopen(self):
         self.queue("/v1/compact", self.compact_fixture)

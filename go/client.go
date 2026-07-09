@@ -26,7 +26,7 @@ const (
 	maxLogLines          = 20_000
 	maxLogLineChars      = 256 * 1024
 	maxMetadataJSONBytes = 64 * 1024
-	defaultUserAgent     = "codag-go/0.1.0"
+	defaultUserAgent     = "codag-go/0.1.1"
 )
 
 var (
@@ -190,7 +190,12 @@ func (c *Client) Compact(ctx context.Context, lines any, opts *RequestOptions) (
 }
 
 // Capsule builds a structured incident capsule via POST /v1/capsule.
-// May require a Codag Pro workspace; backend 402 responses unwrap to ErrBilling.
+//
+// Deprecated: /v1/capsule is now a Codag-internal, admin-only endpoint.
+// Non-admin callers receive a 404. Use Compact (POST /v1/compact) instead,
+// which is the supported public product surface. This method and the
+// CapsuleRequest/CapsuleResponse types are retained for backward
+// compatibility and internal/admin use, and are not removed.
 func (c *Client) Capsule(ctx context.Context, lines any, opts *RequestOptions) (*CapsuleResponse, error) {
 	req, err := BuildCapsuleRequest(lines, opts)
 	if err != nil {

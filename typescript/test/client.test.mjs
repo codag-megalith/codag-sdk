@@ -175,7 +175,7 @@ test("compact sends json content type", async () => {
 test("compact sends user agent", async () => {
   const { client, calls } = makeClient({ responses: { "http://example.test/v1/compact": response(200, compactFixture) } });
   await client.compact(["ERROR one"]);
-  assert.equal(calls[0].init.headers["User-Agent"], "codag-typescript/0.1.0");
+  assert.equal(calls[0].init.headers["User-Agent"], "codag-typescript/0.1.1");
 });
 
 test("compact decodes text and stats", async () => {

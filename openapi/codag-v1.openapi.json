@@ -73,6 +73,8 @@
     "/v1/capsule": {
       "post": {
         "operationId": "capsule",
+        "deprecated": true,
+        "description": "Deprecated: /v1/capsule is now a Codag-internal, admin-only endpoint. Non-admin callers receive a 404. Use POST /v1/compact instead.",
         "security": [
           {
             "bearerAuth": []

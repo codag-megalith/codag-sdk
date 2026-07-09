@@ -56,10 +56,16 @@ class LiveAPICase(unittest.TestCase):
         self.assertTrue(result.text)
 
     def test_capsule_returns_structured_incident(self):
+        # /v1/capsule is deprecated (internal/admin-only); non-admin callers
+        # get a 404 and billing-gated workspaces get a 402. Both are skips.
         try:
             result = self.client.capsule(SAMPLE_LINES, level="error")
         except BillingError as exc:
             self.skipTest(f"workspace lacks capsule access: {exc.detail}")
+        except APIError as exc:
+            if exc.status_code == 404:
+                self.skipTest("capsule is deprecated (internal/admin-only, 404 for non-admin)")
+            raise
         self.assertIn("schema_version", result.capsule)
         self.assertIn("incident", result.capsule)
 

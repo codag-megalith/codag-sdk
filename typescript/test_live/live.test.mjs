@@ -46,12 +46,18 @@ test("live: compact accepts records and metadata", live, async () => {
 });
 
 test("live: capsule returns structured incident", live, async (t) => {
+  // /v1/capsule is deprecated (internal/admin-only); non-admin callers get a
+  // 404 and billing-gated workspaces get a 402. Both are skips.
   let result;
   try {
     result = await client.capsule(SAMPLE_LINES, { level: "error" });
   } catch (error) {
     if (error instanceof BillingError) {
       t.skip(`workspace lacks capsule access: ${error.detail}`);
+      return;
+    }
+    if (error instanceof APIError && error.statusCode === 404) {
+      t.skip("capsule is deprecated (internal/admin-only, 404 for non-admin)");
       return;
     }
     throw error;

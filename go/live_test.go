@@ -77,9 +77,15 @@ func TestLiveCompactAcceptsRecords(t *testing.T) {
 
 func TestLiveCapsuleReturnsStructuredIncident(t *testing.T) {
 	client := liveClient(t)
+	// /v1/capsule is deprecated (internal/admin-only); non-admin callers get a
+	// 404 and billing-gated workspaces get a 402. Both are skips.
 	out, err := client.Capsule(context.Background(), liveSampleLines, &RequestOptions{Level: "error"})
 	if errors.Is(err, ErrBilling) {
 		t.Skipf("workspace lacks capsule access: %v", err)
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
+		t.Skip("capsule is deprecated (internal/admin-only, 404 for non-admin)")
 	}
 	if err != nil {
 		t.Fatal(err)

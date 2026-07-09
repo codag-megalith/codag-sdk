@@ -94,7 +94,14 @@ export class Codag {
   constructor(options?: CodagOptions);
   /** Compress log lines into compact text via POST /v1/compact. */
   compact(lines: string[] | LineRecord[], options?: RequestOptions): Promise<CompactResponse>;
-  /** Build a structured incident capsule via POST /v1/capsule. May require a Codag Pro workspace. */
+  /**
+   * Build a structured incident capsule via POST /v1/capsule.
+   *
+   * @deprecated /v1/capsule is now a Codag-internal, admin-only endpoint.
+   * Non-admin callers receive a 404. Use {@link Codag.compact} (POST /v1/compact)
+   * instead, which is the supported public product surface. This method is
+   * retained for backward compatibility and internal/admin use.
+   */
   capsule(lines: string[] | LineRecord[], options?: RequestOptions): Promise<CapsuleResponse>;
   /** Start an async compact job via POST /v1/compact/jobs. */
   createCompactJob(lines: string[] | LineRecord[], options?: RequestOptions): Promise<CompactJobCreateResponse>;

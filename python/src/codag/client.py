@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, Union
@@ -17,7 +18,7 @@ DEFAULT_BASE_URL = "https://api.codag.ai"
 MAX_LOG_LINES = 20_000
 MAX_LOG_LINE_CHARS = 256 * 1024
 MAX_METADATA_JSON_BYTES = 64 * 1024
-USER_AGENT = "codag-python/0.1.0"
+USER_AGENT = "codag-python/0.1.1"
 
 
 class CodagError(Exception):
@@ -250,9 +251,19 @@ class Codag:
     ) -> CapsuleResponse:
         """Build a structured incident capsule via ``POST /v1/capsule``.
 
-        May require a Codag Pro workspace; backend 402 responses raise
-        :class:`BillingError` with ``upgrade_path`` set when provided.
+        .. deprecated::
+            ``/v1/capsule`` is now a Codag-internal, admin-only endpoint.
+            Non-admin callers receive a 404. Use :meth:`compact`
+            (``POST /v1/compact``) instead, which is the supported public
+            product surface. This method is retained for backward
+            compatibility and internal/admin use.
         """
+        warnings.warn(
+            "Codag.capsule() is deprecated: /v1/capsule is now internal/admin-only "
+            "and returns 404 for non-admin callers. Use Codag.compact() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         payload = _build_payload(lines, metadata=metadata, service=service, level=level)
         data = self._request_json("POST", "/v1/capsule", payload, auth=True)
         return CapsuleResponse.from_dict(data)
@@ -390,7 +401,21 @@ class AsyncCodag:
         service: Optional[str] = None,
         level: str = "info",
     ) -> CapsuleResponse:
-        """Build a structured incident capsule via ``POST /v1/capsule``."""
+        """Build a structured incident capsule via ``POST /v1/capsule``.
+
+        .. deprecated::
+            ``/v1/capsule`` is now a Codag-internal, admin-only endpoint.
+            Non-admin callers receive a 404. Use :meth:`compact`
+            (``POST /v1/compact``) instead, which is the supported public
+            product surface. This method is retained for backward
+            compatibility and internal/admin use.
+        """
+        warnings.warn(
+            "AsyncCodag.capsule() is deprecated: /v1/capsule is now internal/admin-only "
+            "and returns 404 for non-admin callers. Use AsyncCodag.compact() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await asyncio.to_thread(
             self._sync.capsule, lines, metadata=metadata, service=service, level=level
         )
