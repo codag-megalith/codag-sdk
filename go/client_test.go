@@ -647,6 +647,114 @@ func TestTransportAndDecodeErrors(t *testing.T) {
 	})
 }
 
+func TestActionCostAPI(t *testing.T) {
+	t.Run("reduce action", func(t *testing.T) {
+		client, calls := newMockClient(map[string][]mockSpec{
+			"/v1/actions/reduce": {jsonSpec(200, []byte(`{"action_id":"a1","kind":"search","decision":"reduced","content":"one match","selectors":[{"id":"matches","type":"lines","start":1,"end":2}],"usage":{"bytes_in":100,"bytes_out":9}}`), nil)},
+		})
+		out, err := client.ReduceAction(context.Background(), ActionEnvelope{
+			ID: "a1", Kind: ActionSearch, Tool: ToolCall{Name: "grep", Arguments: map[string]any{"q": "needle"}},
+			Result: "many matches", RetrievalHandle: "local-a1",
+		})
+		if err != nil || out.Decision != "reduced" || out.Selectors[0].Start != 1 {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+		if (*calls)[0].Method != http.MethodPost || (*calls)[0].Path != "/v1/actions/reduce" {
+			t.Fatalf("bad call: %+v", (*calls)[0])
+		}
+	})
+
+	t.Run("reject incomplete action", func(t *testing.T) {
+		client, _ := newMockClient(nil)
+		if _, err := client.ReduceAction(context.Background(), ActionEnvelope{ID: "a1"}); err == nil {
+			t.Fatal("expected validation error")
+		}
+	})
+
+	t.Run("metrics", func(t *testing.T) {
+		client, calls := newMockClient(map[string][]mockSpec{
+			"/v1/metrics/batch": {jsonSpec(200, []byte(`{"accepted":1}`), nil)},
+		})
+		accepted, err := client.SendMetrics(context.Background(), []MetricEvent{{
+			ID: "e1", OccurredAt: time.Now(), ActionKind: ActionSearch, Decision: "passthrough",
+		}})
+		if err != nil || accepted != 1 {
+			t.Fatalf("accepted=%d err=%v", accepted, err)
+		}
+		if bytes.Contains((*calls)[0].Body, []byte(`"result"`)) {
+			t.Fatalf("metrics unexpectedly contain result: %s", (*calls)[0].Body)
+		}
+	})
+
+	t.Run("metrics reject content-like labels", func(t *testing.T) {
+		client, _ := newMockClient(nil)
+		_, err := client.SendMetrics(context.Background(), []MetricEvent{{
+			ID: "e1", OccurredAt: time.Now(), ActionKind: ActionSearch,
+			Decision: "passthrough", Model: "/Users/alice/private.bin",
+		}})
+		if err == nil {
+			t.Fatal("expected contentless token validation error")
+		}
+	})
+
+	t.Run("usage summary", func(t *testing.T) {
+		client, _ := newMockClient(map[string][]mockSpec{
+			"/v1/usage/summary": {jsonSpec(200, []byte(`{"period_start":"2026-08-01T00:00:00Z","period_end":"2026-09-01T00:00:00Z","plan_tier":"pro","estimated_provider_spend_microusd":50,"estimated_saved_microusd":60}`), nil)},
+		})
+		out, err := client.UsageSummary(context.Background())
+		if err != nil || out.PlanTier != "pro" || out.EstimatedProviderSpendMicroUSD != 50 || out.EstimatedSavedMicroUSD != 60 {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+	})
+
+	t.Run("model prices", func(t *testing.T) {
+		client, _ := newMockClient(map[string][]mockSpec{
+			"/v1/model-prices": {jsonSpec(200, []byte(`{"currency":"USD","unit":"per_million_tokens","models":[{"provider":"openai","model_pattern":"gpt-5.6-sol","input_usd_per_mtok":5,"cached_input_usd_per_mtok":0.5,"cache_write_usd_per_mtok":6.25,"output_usd_per_mtok":30,"as_of":"2026-08-12","source_url":"https://developers.openai.com/api/docs/models"}]}`), nil)},
+		})
+		out, err := client.ModelPrices(context.Background())
+		if err != nil || out.Currency != "USD" || len(out.Models) != 1 || out.Models[0].ModelPattern != "gpt-5.6-sol" || out.Models[0].OutputUSDPerMTok != 30 {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+	})
+
+	t.Run("breakdown", func(t *testing.T) {
+		client, calls := newMockClient(nil)
+		if _, err := client.UsageBreakdown(context.Background(), &UsageQuery{Days: 14, Dimension: "member"}); err != nil {
+			t.Fatal(err)
+		}
+		if (*calls)[0].Path != "/v1/usage/breakdown" {
+			t.Fatalf("path=%q", (*calls)[0].Path)
+		}
+	})
+
+	t.Run("invalid days", func(t *testing.T) {
+		client, _ := newMockClient(nil)
+		if _, err := client.UsageTimeseries(context.Background(), &UsageQuery{Days: 91}); err == nil {
+			t.Fatal("expected validation error")
+		}
+	})
+
+	t.Run("policy put", func(t *testing.T) {
+		client, calls := newMockClient(map[string][]mockSpec{
+			"/v1/workspace/policy": {jsonSpec(200, []byte(`{"mode":"audit","enabled_actions":["search"],"required_metrics":true}`), nil)},
+		})
+		out, err := client.SetWorkspacePolicy(context.Background(), WorkspacePolicy{
+			Mode: "audit", EnabledActions: []ActionKind{ActionSearch}, RequiredMetrics: true,
+		})
+		if err != nil || out.Mode != "audit" || (*calls)[0].Method != http.MethodPut {
+			t.Fatalf("out=%+v call=%+v err=%v", out, (*calls)[0], err)
+		}
+	})
+
+	t.Run("service status", func(t *testing.T) {
+		client, calls := newMockClient(nil)
+		out, err := client.ServiceStatus(context.Background())
+		if err != nil || out["ok"] != true || (*calls)[0].Header.Get("Authorization") != "Bearer cdk_test" {
+			t.Fatalf("out=%v call=%+v err=%v", out, (*calls)[0], err)
+		}
+	})
+}
+
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "fixtures", name))

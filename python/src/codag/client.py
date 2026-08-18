@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -18,7 +19,24 @@ DEFAULT_BASE_URL = "https://api.codag.ai"
 MAX_LOG_LINES = 20_000
 MAX_LOG_LINE_CHARS = 256 * 1024
 MAX_METADATA_JSON_BYTES = 64 * 1024
-USER_AGENT = "codag-python/0.1.1"
+USER_AGENT = "codag-python/0.2.0"
+METRIC_FIELDS = frozenset({
+    "id", "occurred_at", "session_id", "install_id", "harness", "provider", "model",
+    "action_kind", "decision", "reason", "original_bytes", "replacement_bytes",
+    "provider_input_tokens", "provider_output_tokens", "provider_cache_read_tokens",
+    "provider_cache_write_tokens", "estimated_cost_microusd", "reducer_cost_microusd",
+    "elapsed_ms", "turn_count", "retry_count", "reread_count", "retrieval_count",
+    "client_version",
+})
+METRIC_ID = re.compile(r"^[A-Za-z0-9_.:@+~-]*$")
+METRIC_SLUG = re.compile(r"^[A-Za-z0-9_.:+-]*$")
+METRIC_TOKEN_LIMITS = {
+    "id": (128, METRIC_ID), "session_id": (256, METRIC_ID),
+    "install_id": (256, METRIC_ID), "harness": (128, METRIC_SLUG),
+    "provider": (128, METRIC_SLUG), "model": (256, METRIC_SLUG),
+    "decision": (64, METRIC_SLUG), "reason": (256, METRIC_SLUG),
+    "client_version": (128, METRIC_SLUG),
+}
 
 
 class CodagError(Exception):
@@ -206,6 +224,200 @@ class CompactJobResponse:
         )
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: Any = None
+    id: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {"id": self.id, "name": self.name, "arguments": self.arguments}
+
+
+@dataclass(frozen=True)
+class ActionEnvelope:
+    id: str
+    kind: str
+    tool: ToolCall
+    result: str
+    session_id: str = ""
+    harness: str = ""
+    provider: str = ""
+    model: str = ""
+    task: str = ""
+    intent: str = ""
+    retrieval_handle: str = ""
+    client_version: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "harness": self.harness,
+            "provider": self.provider,
+            "model": self.model,
+            "kind": self.kind,
+            "tool": self.tool.to_json(),
+            "result": self.result,
+            "task": self.task,
+            "intent": self.intent,
+            "retrieval_handle": self.retrieval_handle,
+            "client_version": self.client_version,
+        }
+
+
+@dataclass(frozen=True)
+class Selector:
+    id: str
+    type: str
+    label: str = ""
+    start: int = 0
+    end: int = 0
+    json_path: str = ""
+    group: str = ""
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "Selector":
+        return cls(
+            id=str(value.get("id", "")),
+            type=str(value.get("type", "")),
+            label=str(value.get("label", "")),
+            start=int(value.get("start") or 0),
+            end=int(value.get("end") or 0),
+            json_path=str(value.get("json_path", "")),
+            group=str(value.get("group", "")),
+        )
+
+
+@dataclass(frozen=True)
+class ActionResponse:
+    action_id: str
+    kind: str
+    decision: str
+    content: str
+    reason: str
+    selectors: tuple[Selector, ...]
+    usage: Mapping[str, int]
+    raw: Mapping[str, Any]
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ActionResponse":
+        return cls(
+            action_id=str(value.get("action_id", "")),
+            kind=str(value.get("kind", "")),
+            decision=str(value.get("decision", "")),
+            content=str(value.get("content", "")),
+            reason=str(value.get("reason", "")),
+            selectors=tuple(Selector.from_dict(row) for row in value.get("selectors", [])),
+            usage=dict(value.get("usage", {})),
+            raw=dict(value),
+        )
+
+
+@dataclass(frozen=True)
+class UsageSummary:
+    period_start: str
+    period_end: str
+    plan_tier: str
+    bytes_used: int
+    bytes_included: int
+    observed_tokens: int
+    avoided_tokens: int
+    estimated_provider_spend_microusd: int
+    estimated_saved_microusd: int
+    by_action: Mapping[str, Any]
+    equivalent_savings_microusd: Mapping[str, int]
+    raw: Mapping[str, Any]
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "UsageSummary":
+        return cls(
+            period_start=str(value.get("period_start", "")),
+            period_end=str(value.get("period_end", "")),
+            plan_tier=str(value.get("plan_tier", "")),
+            bytes_used=int(value.get("bytes_used") or 0),
+            bytes_included=int(value.get("bytes_included") or 0),
+            observed_tokens=int(value.get("observed_tokens") or 0),
+            avoided_tokens=int(value.get("avoided_tokens") or 0),
+            estimated_provider_spend_microusd=int(
+                value.get("estimated_provider_spend_microusd") or 0
+            ),
+            estimated_saved_microusd=int(value.get("estimated_saved_microusd") or 0),
+            by_action=dict(value.get("by_action", {})),
+            equivalent_savings_microusd=dict(value.get("equivalent_savings_microusd", {})),
+            raw=dict(value),
+        )
+
+
+@dataclass(frozen=True)
+class ModelPrice:
+    provider: str
+    model_pattern: str
+    input_usd_per_mtok: float
+    cached_input_usd_per_mtok: float
+    cache_write_usd_per_mtok: float
+    output_usd_per_mtok: float
+    as_of: str
+    source_url: str = ""
+    cache_write_basis: str = ""
+    price_valid_through: str = ""
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ModelPrice":
+        return cls(
+            provider=str(value.get("provider", "")),
+            model_pattern=str(value.get("model_pattern", "")),
+            input_usd_per_mtok=float(value.get("input_usd_per_mtok") or 0),
+            cached_input_usd_per_mtok=float(value.get("cached_input_usd_per_mtok") or 0),
+            cache_write_usd_per_mtok=float(value.get("cache_write_usd_per_mtok") or 0),
+            output_usd_per_mtok=float(value.get("output_usd_per_mtok") or 0),
+            as_of=str(value.get("as_of", "")),
+            source_url=str(value.get("source_url", "")),
+            cache_write_basis=str(value.get("cache_write_basis", "")),
+            price_valid_through=str(value.get("price_valid_through", "")),
+        )
+
+
+@dataclass(frozen=True)
+class ModelPriceCatalog:
+    currency: str
+    unit: str
+    models: tuple[ModelPrice, ...]
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ModelPriceCatalog":
+        return cls(
+            currency=str(value.get("currency", "")),
+            unit=str(value.get("unit", "")),
+            models=tuple(ModelPrice.from_dict(row) for row in value.get("models", [])),
+        )
+
+
+@dataclass(frozen=True)
+class WorkspacePolicy:
+    mode: str
+    enabled_actions: tuple[str, ...] = ()
+    required_metrics: bool = True
+    pinned_client_version: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "enabled_actions": list(self.enabled_actions),
+            "required_metrics": self.required_metrics,
+            "pinned_client_version": self.pinned_client_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "WorkspacePolicy":
+        return cls(
+            mode=str(value.get("mode", "audit")),
+            enabled_actions=tuple(str(item) for item in value.get("enabled_actions", [])),
+            required_metrics=bool(value.get("required_metrics", True)),
+            pinned_client_version=str(value.get("pinned_client_version", "")),
+        )
+
+
 LineInput = Union[str, Mapping[str, Any], LineRecord]
 
 
@@ -309,6 +521,72 @@ class Codag:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"compact job {job_id} did not finish within {timeout:g}s")
             time.sleep(poll_interval)
+
+    def reduce_action(self, envelope: Union[ActionEnvelope, Mapping[str, Any]]) -> ActionResponse:
+        """Reduce one action result without cloud retention of its content."""
+        payload = envelope.to_json() if isinstance(envelope, ActionEnvelope) else dict(envelope)
+        if not payload.get("id") or not payload.get("kind") or not payload.get("result"):
+            raise ValidationError("action requires id, kind, tool, and result")
+        if not isinstance(payload.get("tool"), Mapping):
+            raise ValidationError("action tool must be a ToolCall or mapping")
+        data = self._request_json("POST", "/v1/actions/reduce", payload, auth=True)
+        return ActionResponse.from_dict(data)
+
+    def send_metrics(self, events: Sequence[Mapping[str, Any]]) -> int:
+        """Send required contentless accounting events as a deduplicated batch."""
+        if not events or len(events) > 1000:
+            raise ValidationError("events must contain 1 through 1000 contentless metrics")
+        clean = []
+        for event in events:
+            if not isinstance(event, Mapping) or not event.get("id") or not event.get("occurred_at"):
+                raise ValidationError("each metric requires id and occurred_at")
+            extra = set(event) - METRIC_FIELDS
+            if extra:
+                raise ValidationError("metric contains unsupported fields: " + ", ".join(sorted(extra)))
+            for name, (maximum, pattern) in METRIC_TOKEN_LIMITS.items():
+                value = event.get(name, "")
+                if not isinstance(value, str) or len(value) > maximum or pattern.fullmatch(value) is None:
+                    raise ValidationError(
+                        "metric identifiers and labels must be bounded contentless tokens"
+                    )
+            clean.append(dict(event))
+        data = self._request_json("POST", "/v1/metrics/batch", {"events": clean}, auth=True)
+        return int(data.get("accepted") or 0)
+
+    def usage_summary(self) -> UsageSummary:
+        return UsageSummary.from_dict(self._request_json("GET", "/v1/usage/summary", None, auth=True))
+
+    def usage_timeseries(self, *, days: int = 30) -> Mapping[str, Any]:
+        return self._request_json("GET", f"/v1/usage/timeseries?days={_days(days)}", None, auth=True)
+
+    def usage_breakdown(self, *, dimension: str = "action", days: int = 30) -> Mapping[str, Any]:
+        allowed = {"action", "provider", "model", "harness", "member"}
+        if dimension not in allowed:
+            raise ValidationError(f"dimension must be one of {', '.join(sorted(allowed))}")
+        query = urllib.parse.urlencode({"dimension": dimension, "days": _days(days)})
+        return self._request_json("GET", f"/v1/usage/breakdown?{query}", None, auth=True)
+
+    def usage_reliability(self, *, days: int = 30) -> Mapping[str, Any]:
+        return self._request_json("GET", f"/v1/usage/reliability?days={_days(days)}", None, auth=True)
+
+    def trial_report(self) -> Mapping[str, Any]:
+        return self._request_json("GET", "/v1/trials/report", None, auth=True)
+
+    def model_prices(self) -> ModelPriceCatalog:
+        return ModelPriceCatalog.from_dict(
+            self._request_json("GET", "/v1/model-prices", None, auth=True)
+        )
+
+    def get_workspace_policy(self) -> WorkspacePolicy:
+        data = self._request_json("GET", "/v1/workspace/policy", None, auth=True)
+        return WorkspacePolicy.from_dict(data)
+
+    def set_workspace_policy(self, policy: WorkspacePolicy) -> WorkspacePolicy:
+        data = self._request_json("PUT", "/v1/workspace/policy", policy.to_json(), auth=True)
+        return WorkspacePolicy.from_dict(data)
+
+    def service_status(self) -> Mapping[str, Any]:
+        return self._request_json("GET", "/v1/service/status", None, auth=True)
 
     def health(self) -> Mapping[str, Any]:
         """Unauthenticated ``GET /health``."""
@@ -460,6 +738,39 @@ class AsyncCodag:
                 raise TimeoutError(f"compact job {job_id} did not finish within {timeout:g}s")
             await asyncio.sleep(poll_interval)
 
+    async def reduce_action(self, envelope: Union[ActionEnvelope, Mapping[str, Any]]) -> ActionResponse:
+        return await asyncio.to_thread(self._sync.reduce_action, envelope)
+
+    async def send_metrics(self, events: Sequence[Mapping[str, Any]]) -> int:
+        return await asyncio.to_thread(self._sync.send_metrics, events)
+
+    async def usage_summary(self) -> UsageSummary:
+        return await asyncio.to_thread(self._sync.usage_summary)
+
+    async def usage_timeseries(self, *, days: int = 30) -> Mapping[str, Any]:
+        return await asyncio.to_thread(self._sync.usage_timeseries, days=days)
+
+    async def usage_breakdown(self, *, dimension: str = "action", days: int = 30) -> Mapping[str, Any]:
+        return await asyncio.to_thread(self._sync.usage_breakdown, dimension=dimension, days=days)
+
+    async def usage_reliability(self, *, days: int = 30) -> Mapping[str, Any]:
+        return await asyncio.to_thread(self._sync.usage_reliability, days=days)
+
+    async def trial_report(self) -> Mapping[str, Any]:
+        return await asyncio.to_thread(self._sync.trial_report)
+
+    async def model_prices(self) -> ModelPriceCatalog:
+        return await asyncio.to_thread(self._sync.model_prices)
+
+    async def get_workspace_policy(self) -> WorkspacePolicy:
+        return await asyncio.to_thread(self._sync.get_workspace_policy)
+
+    async def set_workspace_policy(self, policy: WorkspacePolicy) -> WorkspacePolicy:
+        return await asyncio.to_thread(self._sync.set_workspace_policy, policy)
+
+    async def service_status(self) -> Mapping[str, Any]:
+        return await asyncio.to_thread(self._sync.service_status)
+
     async def health(self) -> Mapping[str, Any]:
         """Unauthenticated ``GET /health``."""
         return await asyncio.to_thread(self._sync.health)
@@ -480,6 +791,12 @@ def _build_payload(
             raise ValidationError(f"metadata exceeds {MAX_METADATA_JSON_BYTES} bytes")
         payload["metadata"] = dict(metadata)
     return payload
+
+
+def _days(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 90:
+        raise ValidationError("days must be an integer from 1 through 90")
+    return value
 
 
 def normalize_lines(

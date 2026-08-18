@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,7 +27,7 @@ const (
 	maxLogLines          = 20_000
 	maxLogLineChars      = 256 * 1024
 	maxMetadataJSONBytes = 64 * 1024
-	defaultUserAgent     = "codag-go/0.1.1"
+	defaultUserAgent     = "codag-go/0.2.0"
 )
 
 var (
@@ -34,6 +35,11 @@ var (
 	ErrAuthentication = errors.New("codag authentication error")
 	ErrBilling        = errors.New("codag billing action required")
 	ErrRateLimited    = errors.New("codag rate limited or overloaded")
+)
+
+var (
+	metricIDPattern   = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]*$`)
+	metricSlugPattern = regexp.MustCompile(`^[A-Za-z0-9_.:+-]*$`)
 )
 
 type Client struct {
@@ -141,6 +147,152 @@ type CompactJobResponse struct {
 	Text   string      `json:"text,omitempty"`
 	Stats  *ParseStats `json:"stats,omitempty"`
 	Error  string      `json:"error,omitempty"`
+}
+
+type ActionKind string
+
+const (
+	ActionUnknown       ActionKind = "unknown"
+	ActionLog           ActionKind = "log"
+	ActionTestBuildLint ActionKind = "test_build_lint"
+	ActionSearch        ActionKind = "search"
+	ActionFileList      ActionKind = "file_list"
+	ActionDocumentRead  ActionKind = "document_read"
+	ActionAgentHandoff  ActionKind = "agent_handoff"
+	ActionQuery         ActionKind = "query"
+	ActionVerbatim      ActionKind = "verbatim"
+)
+
+type ToolCall struct {
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Arguments any    `json:"arguments,omitempty"`
+}
+
+type ActionEnvelope struct {
+	ID              string     `json:"id"`
+	SessionID       string     `json:"session_id,omitempty"`
+	Harness         string     `json:"harness,omitempty"`
+	Provider        string     `json:"provider,omitempty"`
+	Model           string     `json:"model,omitempty"`
+	Kind            ActionKind `json:"kind"`
+	Tool            ToolCall   `json:"tool"`
+	Result          string     `json:"result"`
+	Task            string     `json:"task,omitempty"`
+	Intent          string     `json:"intent,omitempty"`
+	RetrievalHandle string     `json:"retrieval_handle,omitempty"`
+	ClientVersion   string     `json:"client_version,omitempty"`
+}
+
+type Selector struct {
+	ID       string `json:"id"`
+	Label    string `json:"label,omitempty"`
+	Type     string `json:"type"`
+	Start    int    `json:"start,omitempty"`
+	End      int    `json:"end,omitempty"`
+	JSONPath string `json:"json_path,omitempty"`
+	Group    string `json:"group,omitempty"`
+}
+
+type ActionUsage struct {
+	BytesIn        int64 `json:"bytes_in"`
+	BytesOut       int64 `json:"bytes_out"`
+	ReducerInput   int64 `json:"reducer_input_tokens,omitempty"`
+	ReducerOutput  int64 `json:"reducer_output_tokens,omitempty"`
+	ReducerCostUSD int64 `json:"reducer_cost_microusd,omitempty"`
+	ElapsedMS      int64 `json:"elapsed_ms,omitempty"`
+}
+
+type ActionResponse struct {
+	ActionID  string      `json:"action_id"`
+	Kind      ActionKind  `json:"kind"`
+	Decision  string      `json:"decision"`
+	Content   string      `json:"content,omitempty"`
+	Reason    string      `json:"reason,omitempty"`
+	Selectors []Selector  `json:"selectors,omitempty"`
+	Usage     ActionUsage `json:"usage"`
+}
+
+// MetricEvent is intentionally contentless. It has no prompt, command, path,
+// filename, task, tool arguments, or result fields.
+type MetricEvent struct {
+	ID                 string     `json:"id"`
+	OccurredAt         time.Time  `json:"occurred_at"`
+	SessionID          string     `json:"session_id,omitempty"`
+	InstallID          string     `json:"install_id,omitempty"`
+	Harness            string     `json:"harness,omitempty"`
+	Provider           string     `json:"provider,omitempty"`
+	Model              string     `json:"model,omitempty"`
+	ActionKind         ActionKind `json:"action_kind"`
+	Decision           string     `json:"decision"`
+	Reason             string     `json:"reason,omitempty"`
+	OriginalBytes      int64      `json:"original_bytes,omitempty"`
+	ReplacementBytes   int64      `json:"replacement_bytes,omitempty"`
+	ProviderInput      int64      `json:"provider_input_tokens,omitempty"`
+	ProviderOutput     int64      `json:"provider_output_tokens,omitempty"`
+	ProviderCacheRead  int64      `json:"provider_cache_read_tokens,omitempty"`
+	ProviderCacheWrite int64      `json:"provider_cache_write_tokens,omitempty"`
+	EstimatedMicroUSD  int64      `json:"estimated_cost_microusd,omitempty"`
+	ReducerMicroUSD    int64      `json:"reducer_cost_microusd,omitempty"`
+	ElapsedMS          int64      `json:"elapsed_ms,omitempty"`
+	TurnCount          int64      `json:"turn_count,omitempty"`
+	RetryCount         int64      `json:"retry_count,omitempty"`
+	RereadCount        int64      `json:"reread_count,omitempty"`
+	RetrievalCount     int64      `json:"retrieval_count,omitempty"`
+	ClientVersion      string     `json:"client_version,omitempty"`
+}
+
+type ActionUse struct {
+	Actions                int64 `json:"actions"`
+	BytesIn                int64 `json:"bytes_in"`
+	BytesOut               int64 `json:"bytes_out"`
+	AvoidedTokens          int64 `json:"avoided_tokens"`
+	EstimatedSavedMicroUSD int64 `json:"estimated_saved_microusd"`
+}
+
+type UsageSummary struct {
+	PeriodStart                    time.Time            `json:"period_start"`
+	PeriodEnd                      time.Time            `json:"period_end"`
+	PlanTier                       string               `json:"plan_tier"`
+	BytesUsed                      int64                `json:"bytes_used"`
+	BytesIncluded                  int64                `json:"bytes_included"`
+	ObservedTokens                 int64                `json:"observed_tokens"`
+	AvoidedTokens                  int64                `json:"avoided_tokens"`
+	EstimatedProviderSpendMicroUSD int64                `json:"estimated_provider_spend_microusd"`
+	EstimatedSavedMicroUSD         int64                `json:"estimated_saved_microusd"`
+	ByAction                       map[string]ActionUse `json:"by_action"`
+	EquivalentSavings              map[string]int64     `json:"equivalent_savings_microusd"`
+}
+
+type ModelPrice struct {
+	Provider              string  `json:"provider"`
+	ModelPattern          string  `json:"model_pattern"`
+	InputUSDPerMTok       float64 `json:"input_usd_per_mtok"`
+	CachedInputUSDPerMTok float64 `json:"cached_input_usd_per_mtok"`
+	CacheWriteUSDPerMTok  float64 `json:"cache_write_usd_per_mtok"`
+	OutputUSDPerMTok      float64 `json:"output_usd_per_mtok"`
+	AsOf                  string  `json:"as_of"`
+	SourceURL             string  `json:"source_url,omitempty"`
+	CacheWriteBasis       string  `json:"cache_write_basis,omitempty"`
+	PriceValidThrough     string  `json:"price_valid_through,omitempty"`
+}
+
+type ModelPriceCatalog struct {
+	Currency string       `json:"currency"`
+	Unit     string       `json:"unit"`
+	Models   []ModelPrice `json:"models"`
+}
+
+type WorkspacePolicy struct {
+	Mode                string       `json:"mode"`
+	PinnedClientVersion string       `json:"pinned_client_version,omitempty"`
+	EnabledActions      []ActionKind `json:"enabled_actions"`
+	RequiredMetrics     bool         `json:"required_metrics"`
+}
+
+type UsageQuery struct {
+	Days      int
+	Dimension string
 }
 
 type WaitOptions struct {
@@ -275,6 +427,150 @@ func (c *Client) WaitForCompactJob(ctx context.Context, jobID string, opts *Wait
 		case <-ticker.C:
 		}
 	}
+}
+
+// ReduceAction reduces one coding-agent action without retaining its content
+// in Codag's cloud.
+func (c *Client) ReduceAction(ctx context.Context, action ActionEnvelope) (*ActionResponse, error) {
+	if action.ID == "" || action.Kind == "" || action.Tool.Name == "" || action.Result == "" {
+		return nil, errors.New("action requires ID, Kind, Tool.Name, and Result")
+	}
+	var out ActionResponse
+	if err := c.requestJSON(ctx, http.MethodPost, "/v1/actions/reduce", action, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SendMetrics submits required contentless product-accounting events.
+func (c *Client) SendMetrics(ctx context.Context, events []MetricEvent) (int, error) {
+	if len(events) == 0 || len(events) > 1000 {
+		return 0, errors.New("events must contain 1 through 1000 metrics")
+	}
+	for _, event := range events {
+		if event.ID == "" || event.OccurredAt.IsZero() || event.ActionKind == "" || event.Decision == "" {
+			return 0, errors.New("each metric requires ID, OccurredAt, ActionKind, and Decision")
+		}
+		if !validMetricToken(event.ID, 128, metricIDPattern) ||
+			!validMetricToken(event.SessionID, 256, metricIDPattern) ||
+			!validMetricToken(event.InstallID, 256, metricIDPattern) ||
+			!validMetricToken(event.Harness, 128, metricSlugPattern) ||
+			!validMetricToken(event.Provider, 128, metricSlugPattern) ||
+			!validMetricToken(event.Model, 256, metricSlugPattern) ||
+			!validMetricToken(event.Decision, 64, metricSlugPattern) ||
+			!validMetricToken(event.Reason, 256, metricSlugPattern) ||
+			!validMetricToken(event.ClientVersion, 128, metricSlugPattern) {
+			return 0, errors.New("metric identifiers and labels must be bounded contentless tokens")
+		}
+	}
+	var out struct {
+		Accepted int `json:"accepted"`
+	}
+	if err := c.requestJSON(ctx, http.MethodPost, "/v1/metrics/batch", map[string]any{"events": events}, &out, true); err != nil {
+		return 0, err
+	}
+	return out.Accepted, nil
+}
+
+func validMetricToken(value string, maximum int, pattern *regexp.Regexp) bool {
+	return len(value) <= maximum && pattern.MatchString(value)
+}
+
+func (c *Client) UsageSummary(ctx context.Context) (*UsageSummary, error) {
+	var out UsageSummary
+	if err := c.requestJSON(ctx, http.MethodGet, "/v1/usage/summary", nil, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UsageTimeseries(ctx context.Context, opts *UsageQuery) (map[string]any, error) {
+	path, err := usagePath("/v1/usage/timeseries", opts, false)
+	if err != nil {
+		return nil, err
+	}
+	return c.getMap(ctx, path)
+}
+
+func (c *Client) UsageBreakdown(ctx context.Context, opts *UsageQuery) (map[string]any, error) {
+	path, err := usagePath("/v1/usage/breakdown", opts, true)
+	if err != nil {
+		return nil, err
+	}
+	return c.getMap(ctx, path)
+}
+
+func (c *Client) UsageReliability(ctx context.Context, opts *UsageQuery) (map[string]any, error) {
+	path, err := usagePath("/v1/usage/reliability", opts, false)
+	if err != nil {
+		return nil, err
+	}
+	return c.getMap(ctx, path)
+}
+
+func (c *Client) TrialReport(ctx context.Context) (map[string]any, error) {
+	return c.getMap(ctx, "/v1/trials/report")
+}
+
+func (c *Client) ModelPrices(ctx context.Context) (*ModelPriceCatalog, error) {
+	var out ModelPriceCatalog
+	if err := c.requestJSON(ctx, http.MethodGet, "/v1/model-prices", nil, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetWorkspacePolicy(ctx context.Context) (*WorkspacePolicy, error) {
+	var out WorkspacePolicy
+	if err := c.requestJSON(ctx, http.MethodGet, "/v1/workspace/policy", nil, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) SetWorkspacePolicy(ctx context.Context, policy WorkspacePolicy) (*WorkspacePolicy, error) {
+	var out WorkspacePolicy
+	if err := c.requestJSON(ctx, http.MethodPut, "/v1/workspace/policy", policy, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ServiceStatus(ctx context.Context) (map[string]any, error) {
+	return c.getMap(ctx, "/v1/service/status")
+}
+
+func (c *Client) getMap(ctx context.Context, path string) (map[string]any, error) {
+	out := map[string]any{}
+	if err := c.requestJSON(ctx, http.MethodGet, path, nil, &out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func usagePath(path string, opts *UsageQuery, dimension bool) (string, error) {
+	days := 30
+	dim := "action"
+	if opts != nil {
+		if opts.Days != 0 {
+			days = opts.Days
+		}
+		if opts.Dimension != "" {
+			dim = opts.Dimension
+		}
+	}
+	if days < 1 || days > 90 {
+		return "", errors.New("days must be from 1 through 90")
+	}
+	query := url.Values{"days": {fmt.Sprint(days)}}
+	if dimension {
+		allowed := map[string]bool{"action": true, "provider": true, "model": true, "harness": true, "member": true}
+		if !allowed[dim] {
+			return "", errors.New("dimension must be action, provider, model, harness, or member")
+		}
+		query.Set("dimension", dim)
+	}
+	return path + "?" + query.Encode(), nil
 }
 
 // Health performs an unauthenticated GET /health.

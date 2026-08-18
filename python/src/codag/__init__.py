@@ -2,6 +2,8 @@
 
 from .client import (
     APIError,
+    ActionEnvelope,
+    ActionResponse,
     AsyncCodag,
     AuthenticationError,
     BillingError,
@@ -12,14 +14,22 @@ from .client import (
     CompactJobResponse,
     CompactResponse,
     LineRecord,
+    ModelPrice,
+    ModelPriceCatalog,
     NetworkError,
     ParseStats,
     RateLimitError,
+    Selector,
+    ToolCall,
+    UsageSummary,
     ValidationError,
+    WorkspacePolicy,
 )
 
 __all__ = [
     "APIError",
+    "ActionEnvelope",
+    "ActionResponse",
     "AsyncCodag",
     "AuthenticationError",
     "BillingError",
@@ -30,8 +40,14 @@ __all__ = [
     "CompactJobResponse",
     "CompactResponse",
     "LineRecord",
+    "ModelPrice",
+    "ModelPriceCatalog",
     "NetworkError",
     "ParseStats",
     "RateLimitError",
+    "Selector",
+    "ToolCall",
+    "UsageSummary",
     "ValidationError",
+    "WorkspacePolicy",
 ]

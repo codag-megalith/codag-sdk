@@ -39,7 +39,7 @@ pkg_dir = spec.submodule_search_locations[0]
 import os
 assert os.path.exists(os.path.join(pkg_dir, "py.typed")), "py.typed missing from installed package"
 try:
-    Codag(api_key="cdk_x").compact([])
+    Codag(api_key="cdk_x").reduce_action({"id": "incomplete"})
 except ValidationError:
     sys.exit(0)
 sys.exit("expected ValidationError")
@@ -63,7 +63,7 @@ if command -v npm >/dev/null 2>&1; then
 import { Codag, ValidationError } from "@codag/sdk";
 const client = new Codag({ apiKey: "cdk_x" });
 try {
-  await client.compact([]);
+  await client.reduceAction({ id: "incomplete" });
   process.exit("expected ValidationError");
 } catch (e) {
   if (!(e instanceof ValidationError)) process.exit(`wrong error: ${e}`);
@@ -76,11 +76,16 @@ JS
   # d.ts must typecheck for a modern (NodeNext) consumer.
   (cd "$ts" && npm install -D typescript >/dev/null 2>&1)
   cat > "$ts/check.ts" <<'TS'
-import { Codag, CompactResponse } from "@codag/sdk";
+import { ActionResponse, Codag } from "@codag/sdk";
 const c = new Codag({ apiKey: "cdk_x" });
 export async function go(): Promise<number> {
-  const r: CompactResponse = await c.compact(["ERROR one"], { service: "api" });
-  return r.stats.elapsed_ms;
+  const r: ActionResponse = await c.reduceAction({
+    id: "a1",
+    kind: "file_list",
+    tool: { name: "list_files" },
+    result: "README.md",
+  });
+  return r.usage.bytes_out;
 }
 TS
   cat > "$ts/tsconfig.json" <<'JSON'
@@ -120,7 +125,7 @@ import (
 
 func main() {
 	client := codag.New(codag.WithAPIKey("cdk_x"))
-	_, err := client.Compact(context.Background(), []string{}, nil)
+	_, err := client.ReduceAction(context.Background(), codag.ActionEnvelope{ID: "incomplete"})
 	if err == nil {
 		panic("expected validation error")
 	}

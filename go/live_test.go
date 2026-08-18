@@ -1,30 +1,17 @@
 //go:build live
 
-// Live integration checks against a real Codag API server.
-//
-// Opt-in: excluded from plain `go test ./...` by the live build tag. Run with:
-//
-//	CODAG_API_KEY=cdk_... go test -tags live ./...
-//
-// CODAG_SERVER overrides the target host (defaults to the hosted API).
+// Opt-in integration checks against the hosted Codag action-cost API.
+// Run with CODAG_API_KEY=cdk_... go test -tags live ./....
 package codag
 
 import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 	"testing"
-	"time"
 )
 
-var liveSampleLines = []string{
-	"ERROR api db pool timeout active=20 waiting=30 path=/api/orders",
-	"WARN api db pool nearing capacity active=18 path=/api/orders",
-	"ERROR api db pool timeout active=21 waiting=31 path=/api/checkout",
-	"INFO api request completed status=200 path=/api/health elapsed_ms=3",
-	"ERROR worker job retry queue=email attempt=3 err=smtp_timeout",
-}
+const liveFileList = "README.md\ngo/client.go\ngo/client_test.go"
 
 func liveClient(t *testing.T) *Client {
 	t.Helper()
@@ -35,8 +22,7 @@ func liveClient(t *testing.T) *Client {
 }
 
 func TestLiveHealthReportsOK(t *testing.T) {
-	client := liveClient(t)
-	out, err := client.Health(context.Background())
+	out, err := liveClient(t).Health(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,100 +31,93 @@ func TestLiveHealthReportsOK(t *testing.T) {
 	}
 }
 
-func TestLiveCompactReturnsTextAndStats(t *testing.T) {
-	client := liveClient(t)
-	out, err := client.Compact(context.Background(), liveSampleLines, &RequestOptions{
-		Service:  "api",
-		Level:    "error",
-		Metadata: map[string]any{"source": "sdk-live-test"},
+func TestLiveServiceStatusReportsReducerState(t *testing.T) {
+	out, err := liveClient(t).ServiceStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["status"] != "ok" {
+		t.Fatalf("service status = %v", out)
+	}
+	if _, ok := out["reducer_configured"].(bool); !ok {
+		t.Fatalf("reducer_configured is not a bool: %v", out)
+	}
+}
+
+func TestLiveActionPassthroughDecodes(t *testing.T) {
+	out, err := liveClient(t).ReduceAction(context.Background(), ActionEnvelope{
+		ID:            "sdk-live-go-v020",
+		Kind:          ActionFileList,
+		Tool:          ToolCall{Name: "list_files", Arguments: map[string]any{}},
+		Result:        liveFileList,
+		Harness:       "openai_compatible",
+		ClientVersion: "0.2.0",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Text == "" || out.Stats.ElapsedMS < 0 || out.CompactEngine == "" {
-		t.Fatalf("bad compact response: %+v", out)
+	if out.ActionID != "sdk-live-go-v020" || out.Kind != ActionFileList {
+		t.Fatalf("bad action identity: %+v", out)
+	}
+	if out.Decision != "passthrough" || out.Reason != "conservative_passthrough" {
+		t.Fatalf("bad passthrough decision: %+v", out)
+	}
+	if out.Usage.BytesIn != int64(len([]byte(liveFileList))) || out.Usage.BytesOut != out.Usage.BytesIn {
+		t.Fatalf("bad passthrough usage: %+v", out.Usage)
 	}
 }
 
-func TestLiveCompactAcceptsRecords(t *testing.T) {
+func TestLiveUsageAndPricingContractsDecode(t *testing.T) {
 	client := liveClient(t)
-	records := make([]LineRecord, len(liveSampleLines))
-	for i, line := range liveSampleLines {
-		records[i] = LineRecord{LineID: i, Message: line, Level: "error"}
-	}
-	out, err := client.Compact(context.Background(), records, nil)
+	usage, err := client.UsageSummary(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Text == "" {
-		t.Fatalf("bad compact response: %+v", out)
+	if usage.PeriodStart.IsZero() || usage.PeriodEnd.IsZero() || usage.BytesUsed < 0 {
+		t.Fatalf("bad usage summary: %+v", usage)
+	}
+	prices, err := client.ModelPrices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prices.Currency != "USD" || len(prices.Models) == 0 {
+		t.Fatalf("bad price catalog: %+v", prices)
 	}
 }
 
-func TestLiveCapsuleReturnsStructuredIncident(t *testing.T) {
-	client := liveClient(t)
-	// /v1/capsule is deprecated (internal/admin-only); non-admin callers get a
-	// 404 and billing-gated workspaces get a 402. Both are skips.
-	out, err := client.Capsule(context.Background(), liveSampleLines, &RequestOptions{Level: "error"})
-	if errors.Is(err, ErrBilling) {
-		t.Skipf("workspace lacks capsule access: %v", err)
-	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
-		t.Skip("capsule is deprecated (internal/admin-only, 404 for non-admin)")
-	}
+func TestLiveWorkspacePolicyDecodes(t *testing.T) {
+	policy, err := liveClient(t).GetWorkspacePolicy(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Capsule["schema_version"] == nil || out.Capsule["incident"] == nil {
-		t.Fatalf("bad capsule response: %+v", out)
+	if policy.Mode != "disabled" && policy.Mode != "audit" && policy.Mode != "optimize" {
+		t.Fatalf("bad workspace policy: %+v", policy)
 	}
-}
-
-func TestLiveCompactJobLifecycle(t *testing.T) {
-	client := liveClient(t)
-	created, err := client.CreateCompactJob(context.Background(), liveSampleLines, &RequestOptions{
-		Metadata: map[string]any{"source": "sdk-live-test"},
-	})
-	if errors.Is(err, ErrBilling) {
-		t.Skipf("workspace lacks compact job access: %v", err)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.JobID == "" || !strings.HasSuffix(created.PollURL, created.JobID) {
-		t.Fatalf("bad job create response: %+v", created)
-	}
-	job, err := client.WaitForCompactJob(context.Background(), created.JobID, &WaitOptions{
-		PollInterval: time.Second,
-		Timeout:      2 * time.Minute,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if job.Status != "succeeded" || job.Text == "" {
-		t.Fatalf("bad finished job (error=%q): %+v", job.Error, job)
-	}
-}
-
-func TestLiveUnknownJobMapsTo404(t *testing.T) {
-	client := liveClient(t)
-	_, err := client.GetCompactJob(context.Background(), "cj_sdk_live_does_not_exist")
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != 404 || apiErr.Detail == "" {
-		t.Fatalf("expected 404 APIError, got %v", err)
+	if !policy.RequiredMetrics {
+		t.Fatalf("required metrics unexpectedly disabled: %+v", policy)
 	}
 }
 
 func TestLiveInvalidKeyMapsToAuthentication(t *testing.T) {
 	client := liveClient(t)
 	bad := New(WithAPIKey("cdk_sdk_live_invalid"), WithBaseURL(client.BaseURL))
-	_, err := bad.Compact(context.Background(), liveSampleLines[:1], nil)
+	_, err := bad.ServiceStatus(context.Background())
 	if !errors.Is(err, ErrAuthentication) {
 		t.Fatalf("expected ErrAuthentication, got %v", err)
 	}
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 401 || apiErr.Detail == "" {
 		t.Fatalf("bad auth error: %+v", apiErr)
+	}
+}
+
+func TestLiveInvalidActionFailsBeforeNetwork(t *testing.T) {
+	_, err := liveClient(t).ReduceAction(context.Background(), ActionEnvelope{ID: "incomplete"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		t.Fatalf("validation unexpectedly reached the API: %+v", apiErr)
 	}
 }

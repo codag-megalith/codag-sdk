@@ -1,24 +1,26 @@
-# @codag/sdk
+# Codag TypeScript SDK
 
-TypeScript SDK for the Codag hosted API.
+TypeScript client for Codag's coding-agent cost API.
+
+```bash
+npm install @codag/sdk
+export CODAG_API_KEY="<paste your cdk_ key>"
+```
 
 ```ts
 import { Codag } from "@codag/sdk";
 
-const client = new Codag({ apiKey: process.env.CODAG_API_KEY });
-const result = await client.compact([
-  "ERROR api db pool timeout active=20 waiting=30",
-]);
-
-console.log(result.text);
+const client = new Codag();
+const result = await client.reduceAction({
+  id: "action-1",
+  kind: "search",
+  tool: { name: "grep", arguments: { pattern: "TODO" } },
+  result: largeSearchOutput,
+  retrieval_handle: "local-action-1",
+});
+console.log(result.content);
+console.log((await client.usageSummary()).estimated_saved_microusd);
 ```
 
-This package is dependency-free **ESM** and uses the platform `fetch`.
-
-- Import it with `import` (Node 18+, Deno, Bun, modern bundlers, browsers).
-- CommonJS consumers must use dynamic `import("@codag/sdk")`; a top-level
-  `require()` only works on Node 22.12+ / 20.19+ (where `require(esm)` is
-  enabled). TypeScript projects should compile with `"module": "nodenext"`
-  (or `"esnext"`) — `"module": "commonjs"` cannot `import` an ESM-only package.
-
-A pinned type-checked usage example lives in `test_live/live.test.mjs`.
+SDK authentication is API-key only. Local harness attachment and encrypted
+retrieval are handled by `codag setup` in the CLI.

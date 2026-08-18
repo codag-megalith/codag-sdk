@@ -1,7 +1,7 @@
 {
   "name": "@codag/sdk",
-  "version": "0.1.1",
-  "description": "TypeScript SDK for the Codag hosted API",
+  "version": "0.2.0",
+  "description": "TypeScript SDK for Codag coding-agent cost optimization",
   "type": "module",
   "license": "MIT",
   "author": "Codag <support@codag.ai>",
@@ -21,8 +21,8 @@
   "sideEffects": false,
   "keywords": [
     "codag",
-    "logs",
-    "observability",
+    "coding-agents",
+    "cost-optimization",
     "sdk"
   ],
   "files": [

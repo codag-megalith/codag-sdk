@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from codag import (
     APIError,
+    ActionEnvelope,
     AsyncCodag,
     AuthenticationError,
     BillingError,
@@ -20,7 +21,9 @@ from codag import (
     LineRecord,
     NetworkError,
     RateLimitError,
+    ToolCall,
     ValidationError,
+    WorkspacePolicy,
 )
 from codag.client import DEFAULT_BASE_URL, normalize_lines
 
@@ -189,7 +192,7 @@ class ClientCase(unittest.TestCase):
         self.queue("/v1/compact", self.compact_fixture)
         client = Codag(api_key="cdk_test", base_url=self.base_url)
         self.run_mocked(lambda: client.compact(["ERROR one"]))
-        self.assertEqual(self.calls[0]["headers"]["user-agent"], "codag-python/0.1.1")
+        self.assertEqual(self.calls[0]["headers"]["user-agent"], "codag-python/0.2.0")
 
     def test_compact_passes_timeout_to_urlopen(self):
         self.queue("/v1/compact", self.compact_fixture)
@@ -547,6 +550,123 @@ class ClientCase(unittest.TestCase):
         client = Codag(api_key="cdk_test", base_url=self.base_url)
         result = self.run_mocked(client.health)
         self.assertEqual(result, {})
+
+    def test_reduce_action_posts_typed_envelope(self):
+        self.queue("/v1/actions/reduce", {
+            "action_id": "a1", "kind": "search", "decision": "reduced",
+            "content": "one match", "selectors": [{"id": "all", "type": "lines", "start": 1, "end": 2}],
+            "usage": {"bytes_in": 100, "bytes_out": 9},
+        })
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        action = ActionEnvelope(
+            id="a1", kind="search", tool=ToolCall(name="grep", arguments={"q": "needle"}),
+            result="many matches", retrieval_handle="local-a1",
+        )
+        result = self.run_mocked(lambda: client.reduce_action(action))
+        self.assertEqual(result.decision, "reduced")
+        self.assertEqual(result.selectors[0].start, 1)
+        self.assertEqual(self.calls[0]["url"], self.base_url + "/v1/actions/reduce")
+        self.assertEqual(self.calls[0]["payload"]["tool"]["name"], "grep")
+
+    def test_reduce_action_rejects_incomplete_mapping(self):
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with self.assertRaises(ValidationError):
+            client.reduce_action({"id": "a1"})
+
+    def test_metrics_batch_returns_accepted_count(self):
+        self.queue("/v1/metrics/batch", {"accepted": 1})
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        accepted = self.run_mocked(lambda: client.send_metrics([{
+            "id": "e1", "occurred_at": "2026-08-12T00:00:00Z",
+            "action_kind": "search", "decision": "passthrough",
+        }]))
+        self.assertEqual(accepted, 1)
+        self.assertNotIn("result", self.calls[0]["payload"]["events"][0])
+
+    def test_metrics_reject_content_fields_before_request(self):
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with self.assertRaises(ValidationError):
+            client.send_metrics([{
+                "id": "e1", "occurred_at": "2026-08-12T00:00:00Z",
+                "action_kind": "search", "decision": "passthrough", "result": "raw",
+            }])
+        self.assertEqual(self.calls, [])
+
+    def test_metrics_reject_content_like_labels_before_request(self):
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with self.assertRaises(ValidationError):
+            client.send_metrics([{
+                "id": "e1", "occurred_at": "2026-08-12T00:00:00Z",
+                "action_kind": "search", "decision": "passthrough",
+                "model": "/Users/alice/private.bin",
+            }])
+        self.assertEqual(self.calls, [])
+
+    def test_usage_summary_is_typed(self):
+        self.queue("/v1/usage/summary", {
+            "period_start": "2026-08-01T00:00:00Z", "period_end": "2026-09-01T00:00:00Z",
+            "plan_tier": "pro", "bytes_used": 10, "bytes_included": 20,
+            "observed_tokens": 30, "avoided_tokens": 40,
+            "estimated_provider_spend_microusd": 50,
+            "estimated_saved_microusd": 60, "by_action": {}, "equivalent_savings_microusd": {},
+        })
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        summary = self.run_mocked(client.usage_summary)
+        self.assertEqual(summary.plan_tier, "pro")
+        self.assertEqual(summary.estimated_provider_spend_microusd, 50)
+        self.assertEqual(summary.estimated_saved_microusd, 60)
+
+    def test_usage_breakdown_encodes_query(self):
+        self.queue("/v1/usage/breakdown?dimension=member&days=14", {"groups": []})
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        self.run_mocked(lambda: client.usage_breakdown(dimension="member", days=14))
+        self.assertEqual(self.calls[0]["url"], self.base_url + "/v1/usage/breakdown?dimension=member&days=14")
+
+    def test_usage_query_rejects_invalid_days(self):
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with self.assertRaises(ValidationError):
+            client.usage_timeseries(days=0)
+
+    def test_workspace_policy_round_trip(self):
+        payload = {"mode": "audit", "enabled_actions": ["search"], "required_metrics": True, "pinned_client_version": ""}
+        self.queue("/v1/workspace/policy", payload)
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        policy = self.run_mocked(lambda: client.set_workspace_policy(WorkspacePolicy(mode="audit", enabled_actions=("search",))))
+        self.assertEqual(policy.enabled_actions, ("search",))
+        self.assertEqual(self.calls[0]["method"], "PUT")
+
+    def test_service_status_is_authenticated(self):
+        self.queue("/v1/service/status", {"status": "ok"})
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        self.run_mocked(client.service_status)
+        self.assertEqual(self.calls[0]["authorization"], "Bearer cdk_test")
+
+    def test_async_action_surface(self):
+        self.queue(
+            "/v1/model-prices",
+            {
+                "currency": "USD",
+                "unit": "per_million_tokens",
+                "models": [
+                    {
+                        "provider": "openai",
+                        "model_pattern": "gpt-5.6-sol",
+                        "input_usd_per_mtok": 5,
+                        "cached_input_usd_per_mtok": 0.5,
+                        "cache_write_usd_per_mtok": 6.25,
+                        "output_usd_per_mtok": 30,
+                        "as_of": "2026-08-12",
+                        "source_url": "https://developers.openai.com/api/docs/models",
+                    }
+                ],
+            },
+        )
+        client = AsyncCodag(api_key="cdk_test", base_url=self.base_url)
+        result = self.run_mocked(lambda: asyncio.run(client.model_prices()))
+        self.assertEqual(result.currency, "USD")
+        self.assertEqual(result.unit, "per_million_tokens")
+        self.assertEqual(result.models[0].model_pattern, "gpt-5.6-sol")
+        self.assertEqual(result.models[0].output_usd_per_mtok, 30)
 
 
 if __name__ == "__main__":

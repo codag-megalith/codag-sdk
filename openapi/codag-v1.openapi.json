@@ -1,469 +1,219 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Codag API",
-    "version": "0.1.0",
-    "description": "Token compression for log streams."
+    "title": "Codag Agent Cost API",
+    "version": "0.2.0",
+    "description": "Action-aware reduction, contentless accounting, savings, pricing, policy, and service status. Transient action content is never retained."
   },
-  "servers": [
-    {
-      "url": "https://api.codag.ai"
-    }
-  ],
+  "servers": [{"url": "https://api.codag.ai"}],
+  "security": [{"bearerAuth": []}],
   "paths": {
     "/health": {
       "get": {
         "operationId": "health",
-        "responses": {
-          "200": {
-            "description": "Server health",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          }
-        }
+        "security": [],
+        "responses": {"200": {"description": "Liveness", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}}
       }
     },
-    "/v1/compact": {
+    "/v1/actions/reduce": {
       "post": {
-        "operationId": "compact",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CapsuleRequest"
-              }
-            }
-          }
-        },
+        "operationId": "reduceAction",
+        "description": "Transiently reduce one eligible coding-agent tool result. The original is never returned or retained.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionEnvelope"}}}},
         "responses": {
-          "200": {
-            "description": "Compact text response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompactResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/BillingRequired"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
+          "200": {"description": "Reduction or conservative passthrough decision", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActionResponse"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "402": {"$ref": "#/components/responses/BillingRequired"},
+          "413": {"description": "Action envelope exceeds the request limit; local clients fail open to the original result"},
+          "429": {"$ref": "#/components/responses/TooManyRequests"}
         }
       }
     },
-    "/v1/capsule": {
+    "/v1/metrics/batch": {
       "post": {
-        "operationId": "capsule",
-        "deprecated": true,
-        "description": "Deprecated: /v1/capsule is now a Codag-internal, admin-only endpoint. Non-admin callers receive a 404. Use POST /v1/compact instead.",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CapsuleRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Structured incident capsule",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapsuleResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/BillingRequired"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        }
+        "operationId": "recordMetrics",
+        "description": "Record deduplicated contentless product-accounting events.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MetricsBatch"}}}},
+        "responses": {"200": {"description": "Accepted event count", "content": {"application/json": {"schema": {"type": "object", "required": ["accepted"], "properties": {"accepted": {"type": "integer", "minimum": 0}}, "additionalProperties": false}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "429": {"$ref": "#/components/responses/TooManyRequests"}}
       }
     },
-    "/v1/compact/jobs": {
-      "post": {
-        "operationId": "createCompactJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CapsuleRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Created compact job",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompactJobCreateResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/BillingRequired"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        }
-      }
+    "/v1/usage/summary": {
+      "get": {"operationId": "usageSummary", "responses": {"200": {"description": "Current billing-period savings summary", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UsageSummary"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
     },
-    "/v1/compact/jobs/{job_id}": {
+    "/v1/usage/timeseries": {
       "get": {
-        "operationId": "getCompactJob",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Compact job status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompactJobResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Job not found"
-          },
-          "429": {
-            "$ref": "#/components/responses/RateLimited"
-          }
-        }
+        "operationId": "usageTimeseries",
+        "parameters": [{"$ref": "#/components/parameters/Days"}],
+        "responses": {"200": {"description": "Contentless usage and reliability time series", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}
       }
+    },
+    "/v1/usage/breakdown": {
+      "get": {
+        "operationId": "usageBreakdown",
+        "parameters": [
+          {"$ref": "#/components/parameters/Days"},
+          {"name": "dimension", "in": "query", "schema": {"type": "string", "enum": ["action", "provider", "model", "harness", "member"], "default": "action"}}
+        ],
+        "responses": {"200": {"description": "Attributed contentless aggregates", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+      }
+    },
+    "/v1/usage/reliability": {
+      "get": {
+        "operationId": "usageReliability",
+        "parameters": [{"$ref": "#/components/parameters/Days"}],
+        "responses": {"200": {"description": "Reduction and fail-open reliability", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+      }
+    },
+    "/v1/trials/report": {
+      "get": {"operationId": "trialReport", "responses": {"200": {"description": "Trial savings report and explicit upgrade choices", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
+    },
+    "/v1/model-prices": {
+      "get": {"operationId": "modelPrices", "responses": {"200": {"description": "Attributed public model-price catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelPriceCatalog"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
+    },
+    "/v1/workspace/policy": {
+      "get": {"operationId": "getWorkspacePolicy", "responses": {"200": {"description": "Effective workspace policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkspacePolicy"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
+      "put": {
+        "operationId": "setWorkspacePolicy",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkspacePolicy"}}}},
+        "responses": {"200": {"description": "Effective workspace policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkspacePolicy"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "403": {"description": "Plan does not permit requested policy"}}
+      }
+    },
+    "/v1/service/status": {
+      "get": {"operationId": "serviceStatus", "responses": {"200": {"description": "Reducer and optimization release status", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
     }
   },
   "components": {
-    "securitySchemes": {
-      "bearerAuth": {
-        "type": "http",
-        "scheme": "bearer"
-      }
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "parameters": {
+      "Days": {"name": "days", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 90, "default": 30}}
     },
     "responses": {
-      "Unauthorized": {
-        "description": "Missing or invalid bearer token"
-      },
-      "BillingRequired": {
-        "description": "Billing action required",
-        "headers": {
-          "X-Codag-Upgrade": {
-            "schema": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "RateLimited": {
-        "description": "Rate limited or overloaded",
-        "headers": {
-          "Retry-After": {
-            "schema": {
-              "type": "string"
-            }
-          }
-        }
-      }
+      "Unauthorized": {"description": "Missing or invalid workspace credential"},
+      "BillingRequired": {"description": "Hard cap reached or billing action required; local clients fail open to the original result"},
+      "TooManyRequests": {"description": "Per-credential or per-IP rate limit exceeded; retry according to Retry-After"}
     },
     "schemas": {
-      "LineRecord": {
+      "ActionKind": {"type": "string", "enum": ["unknown", "log", "test_build_lint", "search", "file_list", "document_read", "agent_handoff", "query", "verbatim"]},
+      "ToolCall": {
         "type": "object",
-        "required": [
-          "line_id",
-          "message"
-        ],
+        "required": ["name"],
+        "properties": {"id": {"type": "string", "maxLength": 256}, "name": {"type": "string", "minLength": 1, "maxLength": 512}, "arguments": {}},
+        "additionalProperties": false
+      },
+      "ActionEnvelope": {
+        "type": "object",
+        "required": ["id", "kind", "tool", "result"],
         "properties": {
-          "line_id": {
-            "type": "integer"
-          },
-          "message": {
-            "type": "string",
-            "maxLength": 262144
-          },
-          "level": {
-            "type": "string",
-            "maxLength": 32,
-            "default": "info"
-          },
-          "timestamp": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "maxLength": 128
-          },
-          "service": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "maxLength": 256
-          }
+          "id": {"type": "string", "minLength": 1, "maxLength": 256}, "session_id": {"type": "string", "maxLength": 256}, "harness": {"type": "string", "maxLength": 128},
+          "provider": {"type": "string", "maxLength": 128}, "model": {"type": "string", "maxLength": 256}, "kind": {"$ref": "#/components/schemas/ActionKind"},
+          "tool": {"$ref": "#/components/schemas/ToolCall"}, "result": {"type": "string", "maxLength": 33554432}, "task": {"type": "string", "maxLength": 32768},
+          "intent": {"type": "string", "maxLength": 8192}, "retrieval_handle": {"type": "string", "maxLength": 256}, "client_version": {"type": "string", "maxLength": 128}
         },
         "additionalProperties": false
       },
-      "CapsuleRequest": {
+      "Selector": {
         "type": "object",
-        "required": [
-          "lines"
-        ],
+        "required": ["id", "type"],
         "properties": {
-          "lines": {
-            "type": "array",
-            "maxItems": 20000,
-            "items": {
-              "$ref": "#/components/schemas/LineRecord"
-            }
-          },
-          "metadata": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": true
-          }
+          "id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"}, "label": {"type": "string", "maxLength": 512}, "type": {"type": "string", "enum": ["lines", "json_path", "group"]},
+          "start": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 0}, "json_path": {"type": "string", "maxLength": 1024}, "group": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.:/+~-]*$"}
         },
         "additionalProperties": false
       },
-      "ParseStats": {
+      "ActionUsage": {
         "type": "object",
-        "required": [
-          "llm_calls",
-          "cache_hits",
-          "unmatched",
-          "elapsed_ms"
-        ],
+        "required": ["bytes_in", "bytes_out"],
         "properties": {
-          "llm_calls": {
-            "type": "integer"
-          },
-          "cache_hits": {
-            "type": "integer"
-          },
-          "unmatched": {
-            "type": "integer"
-          },
-          "elapsed_ms": {
-            "type": "integer"
-          },
-          "incident_family_hits": {
-            "type": "integer",
-            "default": 0
-          },
-          "incident_induced_templates": {
-            "type": "integer",
-            "default": 0
-          },
-          "global_cache_hits": {
-            "type": "integer",
-            "default": 0
-          },
-          "global_shadow_hits": {
-            "type": "integer",
-            "default": 0
-          },
-          "global_shadow_agreements": {
-            "type": "integer",
-            "default": 0
-          },
-          "global_shadow_disagreements": {
-            "type": "integer",
-            "default": 0
-          },
-          "total_patterns": {
-            "type": "integer",
-            "default": 0
-          },
-          "candidate_patterns": {
-            "type": "integer",
-            "default": 0
-          },
-          "dropped_patterns": {
-            "type": "integer",
-            "default": 0
-          },
-          "cache_pattern_hits": {
-            "type": "integer",
-            "default": 0
-          },
-          "global_cache_pattern_hits": {
-            "type": "integer",
-            "default": 0
-          }
+          "bytes_in": {"type": "integer", "minimum": 0}, "bytes_out": {"type": "integer", "minimum": 0},
+          "reducer_input_tokens": {"type": "integer", "minimum": 0}, "reducer_output_tokens": {"type": "integer", "minimum": 0},
+          "reducer_cost_microusd": {"type": "integer", "minimum": 0}, "elapsed_ms": {"type": "integer", "minimum": 0}
         },
-        "additionalProperties": true
+        "additionalProperties": false
       },
-      "CompactResponse": {
+      "ActionResponse": {
         "type": "object",
-        "required": [
-          "text",
-          "stats"
-        ],
+        "required": ["action_id", "kind", "decision", "selectors", "usage"],
         "properties": {
-          "text": {
-            "type": "string"
-          },
-          "stats": {
-            "$ref": "#/components/schemas/ParseStats"
-          },
-          "compact_engine": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "compact_fallback": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "compact_error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
+          "action_id": {"type": "string"}, "kind": {"$ref": "#/components/schemas/ActionKind"},
+          "decision": {"type": "string", "enum": ["passthrough", "reduced"]}, "content": {"type": "string"}, "reason": {"type": "string"},
+          "selectors": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Selector"}}, "usage": {"$ref": "#/components/schemas/ActionUsage"}
         },
-        "additionalProperties": true
+        "additionalProperties": false
       },
-      "CapsuleResponse": {
+      "MetricEvent": {
         "type": "object",
-        "required": [
-          "capsule",
-          "stats"
-        ],
+        "description": "Contentless event: prompt, command, path, filename, task, arguments, and result fields are forbidden.",
+        "required": ["id", "occurred_at", "action_kind", "decision"],
         "properties": {
-          "capsule": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "stats": {
-            "$ref": "#/components/schemas/ParseStats"
-          }
+          "id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:@+~-]*$"}, "occurred_at": {"type": "string", "format": "date-time"}, "session_id": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.:@+~-]*$"},
+          "install_id": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.:@+~-]*$"}, "harness": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9_.:+-]*$"}, "provider": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9_.:+-]*$"}, "model": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.:+-]*$"},
+          "action_kind": {"$ref": "#/components/schemas/ActionKind"}, "decision": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9_.:+-]*$"}, "reason": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.:+-]*$"},
+          "original_bytes": {"type": "integer", "minimum": 0}, "replacement_bytes": {"type": "integer", "minimum": 0},
+          "provider_input_tokens": {"type": "integer", "minimum": 0}, "provider_output_tokens": {"type": "integer", "minimum": 0},
+          "provider_cache_read_tokens": {"type": "integer", "minimum": 0}, "provider_cache_write_tokens": {"type": "integer", "minimum": 0},
+          "estimated_cost_microusd": {"type": "integer", "minimum": 0}, "reducer_cost_microusd": {"type": "integer", "minimum": 0},
+          "elapsed_ms": {"type": "integer", "minimum": 0}, "turn_count": {"type": "integer", "minimum": 0},
+          "retry_count": {"type": "integer", "minimum": 0}, "reread_count": {"type": "integer", "minimum": 0},
+          "retrieval_count": {"type": "integer", "minimum": 0}, "client_version": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9_.:+-]*$"}
         },
-        "additionalProperties": true
+        "additionalProperties": false
       },
-      "CompactJobCreateResponse": {
-        "type": "object",
-        "required": [
-          "job_id",
-          "status",
-          "poll_url"
-        ],
-        "properties": {
-          "job_id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "poll_url": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": true
+      "MetricsBatch": {
+        "type": "object", "required": ["events"],
+        "properties": {"events": {"type": "array", "minItems": 1, "maxItems": 1000, "items": {"$ref": "#/components/schemas/MetricEvent"}}},
+        "additionalProperties": false
       },
-      "CompactJobResponse": {
-        "type": "object",
-        "required": [
-          "job_id",
-          "status"
-        ],
+      "ActionUse": {
+        "type": "object", "required": ["actions", "bytes_in", "bytes_out", "avoided_tokens", "estimated_saved_microusd"],
         "properties": {
-          "job_id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "text": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "stats": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ParseStats"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
+          "actions": {"type": "integer"}, "bytes_in": {"type": "integer"}, "bytes_out": {"type": "integer"},
+          "avoided_tokens": {"type": "integer"}, "estimated_saved_microusd": {"type": "integer"}
         },
-        "additionalProperties": true
+        "additionalProperties": false
+      },
+      "UsageSummary": {
+        "type": "object",
+        "required": ["period_start", "period_end", "plan_tier", "bytes_used", "bytes_included", "observed_tokens", "avoided_tokens", "estimated_provider_spend_microusd", "estimated_saved_microusd", "by_action", "equivalent_savings_microusd"],
+        "properties": {
+          "period_start": {"type": "string", "format": "date-time"}, "period_end": {"type": "string", "format": "date-time"},
+          "plan_tier": {"type": "string", "enum": ["free", "pro", "team", "enterprise"]}, "bytes_used": {"type": "integer"},
+          "bytes_included": {"type": "integer"}, "observed_tokens": {"type": "integer"}, "avoided_tokens": {"type": "integer"},
+          "estimated_provider_spend_microusd": {"type": "integer"}, "estimated_saved_microusd": {"type": "integer"},
+          "by_action": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/ActionUse"}},
+          "equivalent_savings_microusd": {"type": "object", "additionalProperties": {"type": "integer"}}
+        },
+        "additionalProperties": false
+      },
+      "ModelPrice": {
+        "type": "object",
+        "required": ["provider", "model_pattern", "input_usd_per_mtok", "cached_input_usd_per_mtok", "cache_write_usd_per_mtok", "output_usd_per_mtok", "as_of"],
+        "properties": {
+          "provider": {"type": "string"}, "model_pattern": {"type": "string"},
+          "input_usd_per_mtok": {"type": "number", "minimum": 0}, "cached_input_usd_per_mtok": {"type": "number", "minimum": 0},
+          "cache_write_usd_per_mtok": {"type": "number", "minimum": 0}, "output_usd_per_mtok": {"type": "number", "minimum": 0},
+          "as_of": {"type": "string"}, "source_url": {"type": "string", "format": "uri"},
+          "cache_write_basis": {"type": "string"}, "price_valid_through": {"type": "string", "format": "date"}
+        },
+        "additionalProperties": false
+      },
+      "ModelPriceCatalog": {
+        "type": "object", "required": ["currency", "unit", "models"],
+        "properties": {
+          "currency": {"type": "string", "const": "USD"},
+          "unit": {"type": "string", "const": "per_million_tokens"},
+          "models": {"type": "array", "items": {"$ref": "#/components/schemas/ModelPrice"}}
+        },
+        "additionalProperties": false
+      },
+      "WorkspacePolicy": {
+        "type": "object",
+        "required": ["mode", "enabled_actions", "required_metrics"],
+        "properties": {
+          "mode": {"type": "string", "enum": ["disabled", "audit", "optimize"]},
+          "enabled_actions": {"type": "array", "maxItems": 16, "items": {"$ref": "#/components/schemas/ActionKind"}},
+          "required_metrics": {"type": "boolean", "const": true}, "pinned_client_version": {"type": "string", "maxLength": 128}
+        },
+        "additionalProperties": false
       }
     }
   }

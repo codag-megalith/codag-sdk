@@ -175,7 +175,7 @@ test("compact sends json content type", async () => {
 test("compact sends user agent", async () => {
   const { client, calls } = makeClient({ responses: { "http://example.test/v1/compact": response(200, compactFixture) } });
   await client.compact(["ERROR one"]);
-  assert.equal(calls[0].init.headers["User-Agent"], "codag-typescript/0.1.1");
+  assert.equal(calls[0].init.headers["User-Agent"], "codag-typescript/0.2.0");
 });
 
 test("compact decodes text and stats", async () => {
@@ -457,4 +457,109 @@ test("empty success body returns empty object for health", async () => {
   const { client } = makeClient({ responses: { "http://example.test/health": rawResponse(200, "") } });
   const result = await client.health();
   assert.deepEqual(result, {});
+});
+
+test("reduceAction posts the action envelope", async () => {
+  const { client, calls } = makeClient({ responses: {
+    "http://example.test/v1/actions/reduce": response(200, {
+      action_id: "a1", kind: "search", decision: "reduced", content: "one match",
+      selectors: [{ id: "matches", type: "lines", start: 1, end: 2 }],
+      usage: { bytes_in: 100, bytes_out: 9 },
+    }),
+  } });
+  const out = await client.reduceAction({
+    id: "a1", kind: "search", tool: { name: "grep", arguments: { q: "needle" } },
+    result: "many matches", retrieval_handle: "local-a1",
+  });
+  assert.equal(out.decision, "reduced");
+  assert.equal(calls[0].url, "http://example.test/v1/actions/reduce");
+  assert.equal(calls[0].body.tool.name, "grep");
+});
+
+test("reduceAction rejects incomplete envelopes", async () => {
+  const { client } = makeClient();
+  await assert.rejects(() => client.reduceAction({ id: "a1" }), ValidationError);
+});
+
+test("sendMetrics rejects content fields before fetch", async () => {
+  const { client, calls } = makeClient();
+  await assert.rejects(() => client.sendMetrics([{
+    id: "e1", occurred_at: "2026-08-12T00:00:00Z", action_kind: "search",
+    decision: "passthrough", result: "raw content",
+  }]), ValidationError);
+  assert.equal(calls.length, 0);
+});
+
+test("sendMetrics rejects content-like labels before fetch", async () => {
+  const { client, calls } = makeClient();
+  await assert.rejects(() => client.sendMetrics([{
+    id: "e1", occurred_at: "2026-08-12T00:00:00Z", action_kind: "search",
+    decision: "passthrough", model: "/Users/alice/private.bin",
+  }]), ValidationError);
+  assert.equal(calls.length, 0);
+});
+
+test("sendMetrics returns deduplicated accepted count", async () => {
+  const { client, calls } = makeClient({ responses: {
+    "http://example.test/v1/metrics/batch": response(200, { accepted: 1 }),
+  } });
+  const accepted = await client.sendMetrics([{
+    id: "e1", occurred_at: "2026-08-12T00:00:00Z", action_kind: "search", decision: "passthrough",
+  }]);
+  assert.equal(accepted, 1);
+  assert.equal(calls[0].body.events[0].result, undefined);
+});
+
+test("usageSummary uses the canonical endpoint", async () => {
+  const { client, calls } = makeClient();
+  await client.usageSummary();
+  assert.equal(calls[0].url, "http://example.test/v1/usage/summary");
+});
+
+test("modelPrices returns the attributed pricing catalog", async () => {
+  const catalog = {
+    currency: "USD",
+    unit: "per_million_tokens",
+    models: [{
+      provider: "openai",
+      model_pattern: "gpt-5.6-sol",
+      input_usd_per_mtok: 5,
+      cached_input_usd_per_mtok: 0.5,
+      cache_write_usd_per_mtok: 6.25,
+      output_usd_per_mtok: 30,
+      as_of: "2026-08-12",
+      source_url: "https://developers.openai.com/api/docs/models",
+    }],
+  };
+  const { client, calls } = makeClient({ responses: {
+    "http://example.test/v1/model-prices": response(200, catalog),
+  } });
+  const prices = await client.modelPrices();
+  assert.equal(prices.currency, "USD");
+  assert.equal(prices.models[0].model_pattern, "gpt-5.6-sol");
+  assert.equal(calls[0].url, "http://example.test/v1/model-prices");
+});
+
+test("usageBreakdown encodes member dimension", async () => {
+  const { client, calls } = makeClient();
+  await client.usageBreakdown({ dimension: "member", days: 14 });
+  assert.equal(calls[0].url, "http://example.test/v1/usage/breakdown?dimension=member&days=14");
+});
+
+test("usage queries reject invalid days", async () => {
+  const { client } = makeClient();
+  await assert.rejects(() => client.usageTimeseries({ days: 91 }), ValidationError);
+});
+
+test("workspace policy uses PUT", async () => {
+  const { client, calls } = makeClient();
+  await client.setWorkspacePolicy({ mode: "audit", enabled_actions: ["search"], required_metrics: true });
+  assert.equal(calls[0].init.method, "PUT");
+  assert.equal(calls[0].url, "http://example.test/v1/workspace/policy");
+});
+
+test("serviceStatus is authenticated", async () => {
+  const { client, calls } = makeClient();
+  await client.serviceStatus();
+  assert.equal(calls[0].init.headers.Authorization, "Bearer cdk_test");
 });

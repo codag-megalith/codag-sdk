@@ -2,7 +2,9 @@ const DEFAULT_BASE_URL = "https://api.codag.ai";
 const MAX_LOG_LINES = 20_000;
 const MAX_LOG_LINE_CHARS = 256 * 1024;
 const MAX_METADATA_JSON_BYTES = 64 * 1024;
-const USER_AGENT = "codag-typescript/0.1.1";
+const USER_AGENT = "codag-typescript/0.2.0";
+const METRIC_ID = /^[A-Za-z0-9_.:@+~-]*$/;
+const METRIC_SLUG = /^[A-Za-z0-9_.:+-]*$/;
 
 export class CodagError extends Error {
   constructor(message) {
@@ -119,6 +121,96 @@ export class Codag {
       }
       await sleep(pollIntervalMs);
     }
+  }
+
+  async reduceAction(action) {
+    if (!action || typeof action !== "object" || !action.id || !action.kind || !action.result) {
+      throw new ValidationError("action requires id, kind, tool, and result");
+    }
+    if (!action.tool || typeof action.tool !== "object" || !action.tool.name) {
+      throw new ValidationError("action.tool requires a name");
+    }
+    return await this.requestJson("POST", "/v1/actions/reduce", action, { auth: true });
+  }
+
+  async sendMetrics(events) {
+    if (!Array.isArray(events) || events.length === 0 || events.length > 1000) {
+      throw new ValidationError("events must contain 1 through 1000 contentless metrics");
+    }
+    const allowed = new Set([
+      "id", "occurred_at", "session_id", "install_id", "harness", "provider", "model",
+      "action_kind", "decision", "reason", "original_bytes", "replacement_bytes",
+      "provider_input_tokens", "provider_output_tokens", "provider_cache_read_tokens",
+      "provider_cache_write_tokens", "estimated_cost_microusd", "reducer_cost_microusd",
+      "elapsed_ms", "turn_count", "retry_count", "reread_count", "retrieval_count",
+      "client_version",
+    ]);
+    for (const event of events) {
+      if (!event || typeof event !== "object" || !event.id || !event.occurred_at) {
+        throw new ValidationError("each metric requires id and occurred_at");
+      }
+      const extra = Object.keys(event).filter((key) => !allowed.has(key));
+      if (extra.length) {
+        throw new ValidationError(`metric contains unsupported fields: ${extra.join(", ")}`);
+      }
+      const tokens = [
+        ["id", 128, METRIC_ID], ["session_id", 256, METRIC_ID],
+        ["install_id", 256, METRIC_ID], ["harness", 128, METRIC_SLUG],
+        ["provider", 128, METRIC_SLUG], ["model", 256, METRIC_SLUG],
+        ["decision", 64, METRIC_SLUG], ["reason", 256, METRIC_SLUG],
+        ["client_version", 128, METRIC_SLUG],
+      ];
+      for (const [name, maximum, pattern] of tokens) {
+        const value = event[name] ?? "";
+        if (typeof value !== "string" || value.length > maximum || !pattern.test(value)) {
+          throw new ValidationError("metric identifiers and labels must be bounded contentless tokens");
+        }
+      }
+    }
+    const response = await this.requestJson("POST", "/v1/metrics/batch", { events }, { auth: true });
+    return Number(response.accepted || 0);
+  }
+
+  async usageSummary() {
+    return await this.requestJson("GET", "/v1/usage/summary", null, { auth: true });
+  }
+
+  async usageTimeseries(options = {}) {
+    return await this.requestJson("GET", `/v1/usage/timeseries?days=${days(options.days ?? 30)}`, null, { auth: true });
+  }
+
+  async usageBreakdown(options = {}) {
+    const dimension = options.dimension ?? "action";
+    const allowed = new Set(["action", "provider", "model", "harness", "member"]);
+    if (!allowed.has(dimension)) {
+      throw new ValidationError("dimension must be action, provider, model, harness, or member");
+    }
+    const query = new URLSearchParams({ dimension, days: String(days(options.days ?? 30)) });
+    return await this.requestJson("GET", `/v1/usage/breakdown?${query}`, null, { auth: true });
+  }
+
+  async usageReliability(options = {}) {
+    return await this.requestJson("GET", `/v1/usage/reliability?days=${days(options.days ?? 30)}`, null, { auth: true });
+  }
+
+  async trialReport() {
+    return await this.requestJson("GET", "/v1/trials/report", null, { auth: true });
+  }
+
+  async modelPrices() {
+    return await this.requestJson("GET", "/v1/model-prices", null, { auth: true });
+  }
+
+  async getWorkspacePolicy() {
+    return await this.requestJson("GET", "/v1/workspace/policy", null, { auth: true });
+  }
+
+  async setWorkspacePolicy(policy) {
+    return await this.requestJson("PUT", "/v1/workspace/policy", policy, { auth: true });
+  }
+
+  async serviceStatus() {
+    return await this.requestJson("GET", "/v1/service/status", null, { auth: true });
   }
 
   async health() {
@@ -286,4 +378,11 @@ function stripTrailingSlash(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function days(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 90) {
+    throw new ValidationError("days must be an integer from 1 through 90");
+  }
+  return value;
 }

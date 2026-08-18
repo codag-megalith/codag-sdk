@@ -1,13 +1,27 @@
-# codag
+# Codag Python SDK
 
-Python SDK for the Codag hosted API.
+Python client for Codag's coding-agent cost API.
 
-```python
-from codag import Codag
-
-client = Codag(api_key="cdk_...")
-result = client.compact(["ERROR api db pool timeout active=20 waiting=30"])
-print(result.text)
+```bash
+pip install codag
+export CODAG_API_KEY="<paste your cdk_ key>"
 ```
 
-See the repository root README for the full multi-language SDK documentation.
+```python
+from codag import ActionEnvelope, Codag, ToolCall
+
+client = Codag()
+result = client.reduce_action(ActionEnvelope(
+    id="action-1",
+    kind="search",
+    tool=ToolCall(name="grep", arguments={"pattern": "TODO"}),
+    result=large_search_output,
+    retrieval_handle="local-action-1",
+))
+print(result.content)
+print(client.usage_summary().estimated_saved_microusd)
+```
+
+`AsyncCodag` provides matching async methods. SDK authentication is API-key
+only; local harness attachment and encrypted retrieval are handled by
+`codag setup` in the CLI.
