@@ -36,10 +36,12 @@ The three SDKs share one version. To cut a release:
 1. Bump the version in `python/pyproject.toml`, `typescript/package.json`, and
    the `USER_AGENT` constants in all three clients.
 2. `make test && make test-dist`.
-3. Tag the commit `vX.Y.Z` and push the tag.
-4. Publish the artifacts:
-   - **PyPI:** `cd python && python -m build && twine upload dist/*`
-   - **npm:** `cd typescript && npm publish --access public`
-   - **Go:** no publish step — `go get` resolves the pushed tag through the
-     module proxy. The import path is `github.com/codag-megalith/codag-sdk/go`,
-     so the tag the proxy needs is `go/vX.Y.Z` (module-subdirectory tagging).
+3. Tag the commit as both `vX.Y.Z` and `go/vX.Y.Z`, then push both tags.
+4. The `Release SDKs` workflow verifies the tagged source and publishes Python
+   and npm through registry trusted publishing (GitHub OIDC; no stored API
+   tokens). Go resolves from the pushed `go/vX.Y.Z` tag through the module
+   proxy because its module lives in the `go` subdirectory.
+
+The workflow can also republish an existing tag through `workflow_dispatch` by
+entering the version without the `v` prefix. PyPI and npm must each trust
+`.github/workflows/release.yml` in the `release` GitHub environment.
