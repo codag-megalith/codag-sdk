@@ -34,7 +34,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
-      - run: python3 scripts/check_release_version.py "$RELEASE_VERSION"
+      - name: Verify release versions
+        shell: bash
+        run: |
+          set -eu
+          python_version="$(python3 -c 'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')"
+          npm_version="$(node -p 'require("./typescript/package.json").version')"
+          test "$python_version" = "$RELEASE_VERSION"
+          test "$npm_version" = "$RELEASE_VERSION"
+          grep -F "codag-python/$RELEASE_VERSION" python/src/codag/client.py
+          grep -F "codag-typescript/$RELEASE_VERSION" typescript/src/index.js
+          grep -F "codag-go/$RELEASE_VERSION" go/client.go
       - run: make test
       - run: make test-dist
 
