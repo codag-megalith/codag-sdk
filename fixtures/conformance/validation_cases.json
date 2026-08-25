@@ -1,0 +1,553 @@
+[
+  {
+    "name": "metric_missing_id",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "id is required in MetricEvent",
+    "field": "id"
+  },
+  {
+    "name": "metric_missing_occurred_at",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "action_kind": "log",
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "occurred_at is required in MetricEvent",
+    "field": "occurred_at"
+  },
+  {
+    "name": "metric_missing_action_kind",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind is required in MetricEvent",
+    "field": "action_kind"
+  },
+  {
+    "name": "metric_missing_decision",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "decision is required in MetricEvent",
+    "field": "decision"
+  },
+  {
+    "name": "metric_empty_decision",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": ""
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "decision has minLength 1",
+    "field": "decision"
+  },
+  {
+    "name": "metric_unknown_action_kind",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "logs",
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind must be one of the nine ActionKind values",
+    "field": "action_kind"
+  },
+  {
+    "name": "metric_decision_not_a_token",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "re duced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "decision must match ^[A-Za-z0-9_.:+-]*$"
+  },
+  {
+    "name": "metric_decision_too_long",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "decision has maxLength 64"
+  },
+  {
+    "name": "metric_unsupported_field",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "reduced",
+          "prompt": "secret"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "MetricEvent sets additionalProperties false (only expressible in clients that accept arbitrary maps)",
+    "dynamic_only": true
+  },
+  {
+    "name": "metric_empty_batch",
+    "method": "send_metrics",
+    "input": {
+      "events": []
+    },
+    "expect": "reject",
+    "reason": "MetricsBatch.events has minItems 1"
+  },
+  {
+    "name": "metric_minimal_valid",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "accept",
+    "reason": "all required fields present and well formed"
+  },
+  {
+    "name": "metric_optional_counters",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": "log",
+          "decision": "reduced",
+          "original_bytes": 4096,
+          "replacement_bytes": 512,
+          "elapsed_ms": 12
+        }
+      ]
+    },
+    "expect": "accept",
+    "reason": "optional integer counters are permitted"
+  },
+  {
+    "name": "action_missing_id",
+    "method": "reduce_action",
+    "input": {
+      "kind": "log",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "id is required in ActionEnvelope",
+    "field": "id"
+  },
+  {
+    "name": "action_missing_kind",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind is required in ActionEnvelope",
+    "field": "kind"
+  },
+  {
+    "name": "action_missing_tool",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "log",
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "tool is required in ActionEnvelope",
+    "field": "tool"
+  },
+  {
+    "name": "action_tool_without_name",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "log",
+      "tool": {},
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "ToolCall.name is required with minLength 1",
+    "field": "tool"
+  },
+  {
+    "name": "action_tool_empty_name",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "log",
+      "tool": {
+        "name": ""
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "ToolCall.name has minLength 1",
+    "field": "tool"
+  },
+  {
+    "name": "action_missing_result",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "log",
+      "tool": {
+        "name": "cat"
+      }
+    },
+    "expect": "reject",
+    "reason": "result is required in ActionEnvelope",
+    "field": "result"
+  },
+  {
+    "name": "action_unknown_kind",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "tests",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind must be one of the nine ActionKind values",
+    "field": "kind"
+  },
+  {
+    "name": "action_kind_unknown",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "unknown",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "unknown is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_log",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "log",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "log is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_test_build_lint",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "test_build_lint",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "test_build_lint is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_search",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "search",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "search is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_file_list",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "file_list",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "file_list is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_document_read",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "document_read",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "document_read is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_agent_handoff",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "agent_handoff",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "agent_handoff is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_query",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "query",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "query is a declared ActionKind"
+  },
+  {
+    "name": "action_kind_verbatim",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": "verbatim",
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "accept",
+    "reason": "verbatim is a declared ActionKind"
+  },
+  {
+    "name": "metric_action_kind_array",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": [
+            "log"
+          ],
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "metric_action_kind_object",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": {
+            "kind": "log"
+          },
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "metric_action_kind_number",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": 1,
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "metric_action_kind_boolean",
+    "method": "send_metrics",
+    "input": {
+      "events": [
+        {
+          "id": "m1",
+          "occurred_at": "2026-08-18T00:00:00Z",
+          "action_kind": true,
+          "decision": "reduced"
+        }
+      ]
+    },
+    "expect": "reject",
+    "reason": "action_kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "action_kind_array",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": [
+        "log"
+      ],
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "action_kind_object",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": {
+        "kind": "log"
+      },
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "action_kind_number",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": 1,
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  },
+  {
+    "name": "action_kind_boolean",
+    "method": "reduce_action",
+    "input": {
+      "id": "a1",
+      "kind": true,
+      "tool": {
+        "name": "cat"
+      },
+      "result": "tail of output"
+    },
+    "expect": "reject",
+    "reason": "kind must be a string ActionKind (not expressible in Go typed structs)",
+    "dynamic_only": true
+  }
+]

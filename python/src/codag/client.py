@@ -28,6 +28,10 @@ METRIC_FIELDS = frozenset({
     "elapsed_ms", "turn_count", "retry_count", "reread_count", "retrieval_count",
     "client_version",
 })
+ACTION_KINDS = frozenset({
+    "unknown", "log", "test_build_lint", "search", "file_list",
+    "document_read", "agent_handoff", "query", "verbatim",
+})
 METRIC_ID = re.compile(r"^[A-Za-z0-9_.:@+~-]*$")
 METRIC_SLUG = re.compile(r"^[A-Za-z0-9_.:+-]*$")
 METRIC_TOKEN_LIMITS = {
@@ -527,8 +531,10 @@ class Codag:
         payload = envelope.to_json() if isinstance(envelope, ActionEnvelope) else dict(envelope)
         if not payload.get("id") or not payload.get("kind") or not payload.get("result"):
             raise ValidationError("action requires id, kind, tool, and result")
-        if not isinstance(payload.get("tool"), Mapping):
-            raise ValidationError("action tool must be a ToolCall or mapping")
+        if not isinstance(payload.get("tool"), Mapping) or not payload["tool"].get("name"):
+            raise ValidationError("action tool must be a ToolCall or mapping with a name")
+        if not isinstance(payload["kind"], str) or payload["kind"] not in ACTION_KINDS:
+            raise ValidationError("action kind must be one of: " + ", ".join(sorted(ACTION_KINDS)))
         data = self._request_json("POST", "/v1/actions/reduce", payload, auth=True)
         return ActionResponse.from_dict(data)
 
@@ -538,8 +544,20 @@ class Codag:
             raise ValidationError("events must contain 1 through 1000 contentless metrics")
         clean = []
         for event in events:
-            if not isinstance(event, Mapping) or not event.get("id") or not event.get("occurred_at"):
-                raise ValidationError("each metric requires id and occurred_at")
+            if (
+                not isinstance(event, Mapping)
+                or not event.get("id")
+                or not event.get("occurred_at")
+                or not event.get("action_kind")
+                or not event.get("decision")
+            ):
+                raise ValidationError(
+                    "each metric requires id, occurred_at, action_kind, and decision"
+                )
+            if not isinstance(event["action_kind"], str) or event["action_kind"] not in ACTION_KINDS:
+                raise ValidationError(
+                    "metric action_kind must be one of: " + ", ".join(sorted(ACTION_KINDS))
+                )
             extra = set(event) - METRIC_FIELDS
             if extra:
                 raise ValidationError("metric contains unsupported fields: " + ", ".join(sorted(extra)))

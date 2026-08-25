@@ -3,6 +3,10 @@ const MAX_LOG_LINES = 20_000;
 const MAX_LOG_LINE_CHARS = 256 * 1024;
 const MAX_METADATA_JSON_BYTES = 64 * 1024;
 const USER_AGENT = "codag-typescript/0.2.0";
+const ACTION_KINDS = new Set([
+  "unknown", "log", "test_build_lint", "search", "file_list",
+  "document_read", "agent_handoff", "query", "verbatim",
+]);
 const METRIC_ID = /^[A-Za-z0-9_.:@+~-]*$/;
 const METRIC_SLUG = /^[A-Za-z0-9_.:+-]*$/;
 
@@ -130,6 +134,9 @@ export class Codag {
     if (!action.tool || typeof action.tool !== "object" || !action.tool.name) {
       throw new ValidationError("action.tool requires a name");
     }
+    if (!ACTION_KINDS.has(action.kind)) {
+      throw new ValidationError(`action kind must be one of: ${[...ACTION_KINDS].sort().join(", ")}`);
+    }
     return await this.requestJson("POST", "/v1/actions/reduce", action, { auth: true });
   }
 
@@ -146,8 +153,12 @@ export class Codag {
       "client_version",
     ]);
     for (const event of events) {
-      if (!event || typeof event !== "object" || !event.id || !event.occurred_at) {
-        throw new ValidationError("each metric requires id and occurred_at");
+      if (!event || typeof event !== "object" || !event.id || !event.occurred_at
+          || !event.action_kind || !event.decision) {
+        throw new ValidationError("each metric requires id, occurred_at, action_kind, and decision");
+      }
+      if (!ACTION_KINDS.has(event.action_kind)) {
+        throw new ValidationError(`metric action_kind must be one of: ${[...ACTION_KINDS].sort().join(", ")}`);
       }
       const extra = Object.keys(event).filter((key) => !allowed.has(key));
       if (extra.length) {

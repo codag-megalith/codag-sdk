@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -162,6 +163,30 @@ const (
 	ActionQuery         ActionKind = "query"
 	ActionVerbatim      ActionKind = "verbatim"
 )
+
+// actionKinds lists every ActionKind the published contract declares.
+var actionKinds = []ActionKind{
+	ActionUnknown, ActionLog, ActionTestBuildLint, ActionSearch, ActionFileList,
+	ActionDocumentRead, ActionAgentHandoff, ActionQuery, ActionVerbatim,
+}
+
+func validActionKind(kind ActionKind) bool {
+	for _, known := range actionKinds {
+		if kind == known {
+			return true
+		}
+	}
+	return false
+}
+
+func actionKindList() string {
+	names := make([]string, len(actionKinds))
+	for i, kind := range actionKinds {
+		names[i] = string(kind)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
 
 type ToolCall struct {
 	ID        string `json:"id,omitempty"`
@@ -435,6 +460,9 @@ func (c *Client) ReduceAction(ctx context.Context, action ActionEnvelope) (*Acti
 	if action.ID == "" || action.Kind == "" || action.Tool.Name == "" || action.Result == "" {
 		return nil, errors.New("action requires ID, Kind, Tool.Name, and Result")
 	}
+	if !validActionKind(action.Kind) {
+		return nil, fmt.Errorf("action Kind must be one of: %s", actionKindList())
+	}
 	var out ActionResponse
 	if err := c.requestJSON(ctx, http.MethodPost, "/v1/actions/reduce", action, &out, true); err != nil {
 		return nil, err
@@ -450,6 +478,9 @@ func (c *Client) SendMetrics(ctx context.Context, events []MetricEvent) (int, er
 	for _, event := range events {
 		if event.ID == "" || event.OccurredAt.IsZero() || event.ActionKind == "" || event.Decision == "" {
 			return 0, errors.New("each metric requires ID, OccurredAt, ActionKind, and Decision")
+		}
+		if !validActionKind(event.ActionKind) {
+			return 0, fmt.Errorf("metric ActionKind must be one of: %s", actionKindList())
 		}
 		if !validMetricToken(event.ID, 128, metricIDPattern) ||
 			!validMetricToken(event.SessionID, 256, metricIDPattern) ||

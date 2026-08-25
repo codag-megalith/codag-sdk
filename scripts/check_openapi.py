@@ -9,6 +9,47 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "openapi" / "codag-v1.openapi.json"
+CASES = ROOT / "fixtures" / "conformance" / "validation_cases.json"
+
+# Shared conformance cases are keyed by client method; each method exercises one
+# request schema. Every required field of that schema must have a reject-case.
+CASE_SCHEMAS = {
+    "send_metrics": "MetricEvent",
+    "reduce_action": "ActionEnvelope",
+}
+
+
+def check_required_fields_are_covered(schemas: dict, cases=None) -> None:
+    """Pair each required-field omission with an otherwise identical accept-case."""
+    if cases is None:
+        cases = json.loads(CASES.read_text())
+    for method, schema in CASE_SCHEMAS.items():
+        required = set(schemas[schema].get("required", []))
+        inputs = {"accept": [], "reject": []}
+        for case in cases:
+            if case["method"] != method or case.get("dynamic_only"):
+                continue
+            payload = case["input"]
+            if method == "send_metrics":
+                events = payload.get("events", [])
+                if len(events) != 1:
+                    continue
+                payload = events[0]
+            inputs[case["expect"]].append(payload)
+        covered = set()
+        for accepted in inputs["accept"]:
+            if not required.issubset(accepted):
+                continue
+            for field in required:
+                omitted = {key: value for key, value in accepted.items() if key != field}
+                if omitted in inputs["reject"]:
+                    covered.add(field)
+        missing = sorted(required - covered)
+        if missing:
+            raise SystemExit(
+                f"{schema} required fields have no paired omission reject-case in "
+                f"fixtures/conformance/validation_cases.json: " + ", ".join(missing)
+            )
 
 
 def main() -> int:
@@ -82,6 +123,7 @@ def main() -> int:
         raise SystemExit("selector ids and group tokens must be contentless-safe")
     if schemas["ActionResponse"]["properties"]["selectors"].get("maxItems") != 64:
         raise SystemExit("action responses must cap omission selectors at 64")
+    check_required_fields_are_covered(schemas)
     return 0
 
 
