@@ -669,5 +669,52 @@ class ClientCase(unittest.TestCase):
         self.assertEqual(result.models[0].output_usd_per_mtok, 30)
 
 
+class ConformanceCase(unittest.TestCase):
+    """Drives the shared cross-language cases in fixtures/conformance."""
+
+    CASES = json.loads(
+        (ROOT / "fixtures" / "conformance" / "validation_cases.json").read_text()
+    )
+
+    def verdict(self, case):
+        calls, responses = [], {
+            "http://codag.test/v1/metrics/batch": (200, {}, {"accepted": 1}),
+            "http://codag.test/v1/actions/reduce": (
+                200,
+                {},
+                {
+                    "action_id": "a1",
+                    "kind": "log",
+                    "decision": "passthrough",
+                    "selectors": [],
+                    "usage": {"bytes_in": 1, "bytes_out": 1},
+                },
+            ),
+        }
+        client = Codag(api_key="cdk_test", base_url="http://codag.test")
+        method = (
+            (lambda: client.send_metrics(case["input"]["events"]))
+            if case["method"] == "send_metrics"
+            else (lambda: client.reduce_action(case["input"]))
+        )
+        with patch("urllib.request.urlopen", fake_urlopen(calls, responses)):
+            try:
+                method()
+            except ValidationError:
+                self.assertEqual(calls, [], "rejected input must not issue a request")
+                return "reject"
+        self.assertEqual(len(calls), 1, "accepted input must issue exactly one request")
+        return "accept"
+
+    def test_shared_validation_cases(self):
+        for case in self.CASES:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(
+                    case["expect"],
+                    self.verdict(case),
+                    f"{case['name']}: {case['reason']}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

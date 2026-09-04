@@ -763,3 +763,76 @@ func readFixture(t *testing.T, name string) []byte {
 	}
 	return raw
 }
+
+// TestSharedValidationCases drives the shared cross-language cases in
+// fixtures/conformance. Cases marked dynamic_only cannot be expressed against
+// the typed Go structs and are skipped.
+func TestSharedValidationCases(t *testing.T) {
+	raw := readFixture(t, filepath.Join("conformance", "validation_cases.json"))
+	var cases []struct {
+		Name        string          `json:"name"`
+		Method      string          `json:"method"`
+		Input       json.RawMessage `json:"input"`
+		Expect      string          `json:"expect"`
+		Reason      string          `json:"reason"`
+		DynamicOnly bool            `json:"dynamic_only"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("no conformance cases loaded")
+	}
+
+	metricsBody := []byte(`{"accepted":1}`)
+	actionBody := []byte(`{"action_id":"a1","kind":"log","decision":"passthrough","selectors":[],"usage":{"bytes_in":1,"bytes_out":1}}`)
+
+	for _, testCase := range cases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			if testCase.DynamicOnly {
+				t.Skip("not expressible against typed Go structs")
+			}
+			client, calls := newMockClient(map[string][]mockSpec{
+				"/v1/metrics/batch":  {jsonSpec(200, metricsBody, nil)},
+				"/v1/actions/reduce": {jsonSpec(200, actionBody, nil)},
+			})
+
+			var err error
+			switch testCase.Method {
+			case "send_metrics":
+				var batch struct {
+					Events []MetricEvent `json:"events"`
+				}
+				if decodeErr := json.Unmarshal(testCase.Input, &batch); decodeErr != nil {
+					t.Fatalf("decode input: %v", decodeErr)
+				}
+				_, err = client.SendMetrics(context.Background(), batch.Events)
+			case "reduce_action":
+				var envelope ActionEnvelope
+				if decodeErr := json.Unmarshal(testCase.Input, &envelope); decodeErr != nil {
+					t.Fatalf("decode input: %v", decodeErr)
+				}
+				_, err = client.ReduceAction(context.Background(), envelope)
+			default:
+				t.Fatalf("unknown method %q", testCase.Method)
+			}
+
+			verdict := "accept"
+			if err != nil {
+				verdict = "reject"
+			}
+			if verdict != testCase.Expect {
+				t.Fatalf("%s: got %s, want %s (%s): %v",
+					testCase.Name, verdict, testCase.Expect, testCase.Reason, err)
+			}
+			wantCalls := 1
+			if testCase.Expect == "reject" {
+				wantCalls = 0
+			}
+			if len(*calls) != wantCalls {
+				t.Fatalf("%s: got %d requests, want %d (error: %v)",
+					testCase.Name, len(*calls), wantCalls, err)
+			}
+		})
+	}
+}

@@ -16,6 +16,7 @@ import {
 const root = new URL("../../", import.meta.url);
 const compactFixture = JSON.parse(await readFile(new URL("fixtures/compact_response.json", root), "utf8"));
 const capsuleFixture = JSON.parse(await readFile(new URL("fixtures/capsule_response.json", root), "utf8"));
+const conformanceCases = JSON.parse(await readFile(new URL("fixtures/conformance/validation_cases.json", root), "utf8"));
 
 class HeadersLike {
   constructor(values = {}) {
@@ -562,4 +563,36 @@ test("serviceStatus is authenticated", async () => {
   const { client, calls } = makeClient();
   await client.serviceStatus();
   assert.equal(calls[0].init.headers.Authorization, "Bearer cdk_test");
+});
+
+// Drives the shared cross-language cases in fixtures/conformance.
+test("shared validation cases", async () => {
+  for (const testCase of conformanceCases) {
+    const { client, calls } = makeClient({
+      responses: {
+        "http://example.test/v1/metrics/batch": response(200, { accepted: 1 }),
+        "http://example.test/v1/actions/reduce": response(200, {
+          action_id: "a1",
+          kind: "log",
+          decision: "passthrough",
+          selectors: [],
+          usage: { bytes_in: 1, bytes_out: 1 },
+        }),
+      },
+    });
+    let verdict = "accept";
+    try {
+      if (testCase.method === "send_metrics") {
+        await client.sendMetrics(testCase.input.events);
+      } else {
+        await client.reduceAction(testCase.input);
+      }
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      verdict = "reject";
+    }
+    assert.equal(verdict, testCase.expect, `${testCase.name}: ${testCase.reason}`);
+    assert.equal(calls.length, testCase.expect === "reject" ? 0 : 1,
+      `${testCase.name}: rejected inputs must not fetch; accepted inputs must fetch once`);
+  }
 });
