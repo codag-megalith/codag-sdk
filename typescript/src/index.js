@@ -238,6 +238,7 @@ export class Codag {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     let response;
+    let text;
     try {
       response = await this.fetch(this.baseUrl + path, {
         method,
@@ -245,6 +246,10 @@ export class Codag {
         body,
         signal: controller.signal,
       });
+      // Read the body under the same timeout: fetch resolves once headers
+      // arrive, so a stalled or dropped body would otherwise hang or escape
+      // as a raw TypeError.
+      text = await response.text();
     } catch (error) {
       if (error && error.name === "AbortError") {
         throw new NetworkError(`request to ${this.baseUrl} timed out after ${this.timeoutMs}ms`, error);
@@ -254,7 +259,6 @@ export class Codag {
       clearTimeout(timeout);
     }
 
-    const text = await response.text();
     if (!response.ok) {
       throw errorForResponse(response, text);
     }
