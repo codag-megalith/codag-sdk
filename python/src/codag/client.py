@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import os
 import re
@@ -642,6 +643,11 @@ class Codag:
             raise NetworkError(
                 f"request to {self.base_url} timed out after {self.timeout:g}s"
             ) from exc
+        except (OSError, http.client.HTTPException) as exc:
+            # urllib only wraps errors raised while sending the request. A
+            # connection dropped before or during the response surfaces as
+            # RemoteDisconnected, ConnectionResetError, or IncompleteRead.
+            raise NetworkError(f"cannot reach Codag server at {self.base_url}: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise CodagError(f"Codag returned invalid JSON: {exc}") from exc
 

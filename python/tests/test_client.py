@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import os
 import socket
@@ -534,6 +535,25 @@ class ClientCase(unittest.TestCase):
         with self.assertRaises(NetworkError) as raised:
             self.run_mocked(lambda: client.compact(["ERROR one"]))
         self.assertIn("timed out after 5s", str(raised.exception))
+
+    def test_dropped_connection_maps_to_network_error(self):
+        self.responses[self.base_url + "/v1/compact"] = http.client.RemoteDisconnected(
+            "Remote end closed connection without response"
+        )
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with self.assertRaises(NetworkError) as raised:
+            self.run_mocked(lambda: client.compact(["ERROR one"]))
+        self.assertIn("cannot reach Codag server", str(raised.exception))
+
+    def test_connection_reset_while_reading_body_maps_to_network_error(self):
+        class ResetResponse(FakeResponse):
+            def read(self):
+                raise http.client.IncompleteRead(b"{", 10)
+
+        client = Codag(api_key="cdk_test", base_url=self.base_url)
+        with patch("urllib.request.urlopen", lambda req, timeout=0: ResetResponse()):
+            with self.assertRaises(NetworkError):
+                client.compact(["ERROR one"])
 
     def test_normalize_accepts_generator_input(self):
         records = normalize_lines(line for line in ["a", "b"])
