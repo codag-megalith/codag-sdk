@@ -421,6 +421,47 @@ test("network failure maps to NetworkError", async () => {
   await assert.rejects(() => client.compact(["ERROR one"]), NetworkError);
 });
 
+test("timeout also covers a response body that stalls", async () => {
+  const client = new Codag({
+    apiKey: "cdk_test",
+    baseUrl: "http://example.test",
+    timeoutMs: 20,
+    fetch: async (_url, init) => ({
+      ok: true,
+      status: 200,
+      headers: new HeadersLike(),
+      text: () =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => {
+            const abortError = new Error("This operation was aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        }),
+    }),
+  });
+  await assert.rejects(
+    () => client.health(),
+    (error) => error instanceof NetworkError && /timed out after 20ms/.test(error.message),
+  );
+});
+
+test("connection dropped while reading the body maps to NetworkError", async () => {
+  const client = new Codag({
+    apiKey: "cdk_test",
+    baseUrl: "http://example.test",
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      headers: new HeadersLike(),
+      async text() {
+        throw new TypeError("terminated");
+      },
+    }),
+  });
+  await assert.rejects(() => client.health(), NetworkError);
+});
+
 test("timeout abort maps to timed out NetworkError", async () => {
   const abortError = new Error("This operation was aborted");
   abortError.name = "AbortError";
